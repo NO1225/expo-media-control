@@ -1,11 +1,9 @@
 import { NativeModule, requireNativeModule } from 'expo';
 
-import { ExpoMediaControlModuleEvents } from './ExpoMediaControl.types';
 
-declare class ExpoMediaControlModule extends NativeModule<ExpoMediaControlModuleEvents> {
-  PI: number;
-  hello(): string;
-  setValueAsync(value: string): Promise<void>;
+declare class ExpoMediaControlModule extends NativeModule {
+  getApiKey(): string;
+
 }
 
 // This call loads the native module object from the JSI.
