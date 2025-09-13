@@ -1,0 +1,10 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "paths": {
+      "expo-media-control": ["../src/index"],
+      "expo-media-control/*": ["../src/*"]
+    }
+  }
+}
