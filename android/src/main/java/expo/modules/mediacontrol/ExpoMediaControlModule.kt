@@ -15,7 +15,9 @@ class ExpoMediaControlModule : Module() {
     Name("ExpoMediaControl")
 
     Function("getApiKey") {
-      return@Function "api-key"
+      val applicationInfo = appContext?.reactContext?.packageManager?.getApplicationInfo(appContext?.reactContext?.packageName.toString(), PackageManager.GET_META_DATA)
+
+      return@Function applicationInfo?.metaData?.getString("MY_CUSTOM_API_KEY")
     }
   }
 }

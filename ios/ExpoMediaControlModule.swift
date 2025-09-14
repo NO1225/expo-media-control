@@ -11,8 +11,8 @@ public class ExpoMediaControlModule: Module {
     Name("ExpoMediaControl")
 
     
-    Function("getApiKey") { () -> String in
-      "api-key"
+    Function("getApiKey") {
+     return Bundle.main.object(forInfoDictionaryKey: "MY_CUSTOM_API_KEY") as? String
     }
   }
 }
