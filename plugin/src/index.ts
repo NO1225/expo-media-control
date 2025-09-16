@@ -3,26 +3,157 @@ import {
   withAndroidManifest,
   AndroidConfig,
   ConfigPlugin,
+  InfoPlist,
+  AndroidManifest,
 } from 'expo/config-plugins';
 
-const withMyApiKey: ConfigPlugin<{ apiKey: string }> = (config, { apiKey }) => {
-  config = withInfoPlist(config, config => {
-    config.modResults['MY_CUSTOM_API_KEY'] = apiKey;
-    return config;
-  });
+/**
+ * Configuration options for the Expo Media Control plugin
+ */
+interface MediaControlOptions {
+  /** Enable background audio modes (iOS) */
+  enableBackgroundAudio?: boolean;
+  /** Audio session category for iOS */
+  audioSessionCategory?: string;
+  /** Android notification channel configuration */
+  notificationChannel?: {
+    name?: string;
+    description?: string;
+    importance?: 'low' | 'default' | 'high';
+  };
+  /** Skip interval in seconds for forward/backward commands */
+  skipInterval?: number;
+  /** Custom notification icon name (Android) */
+  notificationIcon?: string;
+}
 
-  config = withAndroidManifest(config, config => {
-    const mainApplication = AndroidConfig.Manifest.getMainApplicationOrThrow(config.modResults);
+/**
+ * iOS Configuration
+ * Adds required background modes and audio session configuration
+ */
+const withIOSMediaControl: ConfigPlugin<MediaControlOptions> = (config, options = {}) => {
+  config = withInfoPlist(config, (config) => {
+    const infoPlist = config.modResults;
 
-    AndroidConfig.Manifest.addMetaDataItemToMainApplication(
-      mainApplication,
-      'MY_CUSTOM_API_KEY',
-      apiKey
-    );
+    // Add background modes for audio playback
+    if (options.enableBackgroundAudio !== false) {
+      if (!infoPlist.UIBackgroundModes) {
+        infoPlist.UIBackgroundModes = [];
+      }
+      
+      const backgroundModes = infoPlist.UIBackgroundModes as string[];
+      
+      // Add audio background mode if not present
+      if (!backgroundModes.includes('audio')) {
+        backgroundModes.push('audio');
+      }
+      
+      // Add background-processing for better control handling
+      if (!backgroundModes.includes('background-processing')) {
+        backgroundModes.push('background-processing');
+      }
+    }
+
+    // Add audio session category configuration
+    const audioSessionCategory = options.audioSessionCategory || 'playback';
+    infoPlist['AVAudioSessionCategory'] = audioSessionCategory;
+
+    // Add required audio session options
+    infoPlist['AVAudioSessionCategoryOptions'] = [
+      'AVAudioSessionCategoryOptionAllowBluetooth',
+      'AVAudioSessionCategoryOptionAllowBluetoothA2DP'
+    ];
+
+    // Configure skip intervals for remote commands
+    if (options.skipInterval) {
+      infoPlist['MediaControlSkipInterval'] = options.skipInterval;
+    }
+
     return config;
   });
 
   return config;
 };
 
-export default withMyApiKey;
+/**
+ * Android Configuration  
+ * Adds required permissions and service configuration
+ */
+const withAndroidMediaControl: ConfigPlugin<MediaControlOptions> = (config, options = {}) => {
+  config = withAndroidManifest(config, (config) => {
+    const androidManifest = config.modResults;
+
+    // Add required permissions
+    const permissions = [
+      'android.permission.FOREGROUND_SERVICE',
+      'android.permission.WAKE_LOCK',
+      'android.permission.ACCESS_NETWORK_STATE',
+    ];
+
+    permissions.forEach(permission => {
+      AndroidConfig.Permissions.addPermission(androidManifest, permission);
+    });
+
+    // Get the main application
+    const mainApplication = AndroidConfig.Manifest.getMainApplicationOrThrow(androidManifest);
+
+    // Add metadata for notification configuration
+    if (options.notificationChannel) {
+      AndroidConfig.Manifest.addMetaDataItemToMainApplication(
+        mainApplication,
+        'expo.modules.mediacontrol.NOTIFICATION_CHANNEL_NAME',
+        options.notificationChannel.name || 'Media Control'
+      );
+
+      AndroidConfig.Manifest.addMetaDataItemToMainApplication(
+        mainApplication,
+        'expo.modules.mediacontrol.NOTIFICATION_CHANNEL_DESCRIPTION',
+        options.notificationChannel.description || 'Controls for media playback'
+      );
+
+      AndroidConfig.Manifest.addMetaDataItemToMainApplication(
+        mainApplication,
+        'expo.modules.mediacontrol.NOTIFICATION_CHANNEL_IMPORTANCE',
+        options.notificationChannel.importance || 'low'
+      );
+    }
+
+    // Add skip interval configuration
+    if (options.skipInterval) {
+      AndroidConfig.Manifest.addMetaDataItemToMainApplication(
+        mainApplication,
+        'expo.modules.mediacontrol.SKIP_INTERVAL',
+        options.skipInterval.toString()
+      );
+    }
+
+    // Add custom notification icon if specified
+    if (options.notificationIcon) {
+      AndroidConfig.Manifest.addMetaDataItemToMainApplication(
+        mainApplication,
+        'expo.modules.mediacontrol.NOTIFICATION_ICON',
+        options.notificationIcon
+      );
+    }
+
+    return config;
+  });
+
+  return config;
+};
+
+/**
+ * Main plugin function
+ * Combines iOS and Android configurations for comprehensive media control support
+ */
+const withExpoMediaControl: ConfigPlugin<MediaControlOptions> = (config, options = {}) => {
+  // Apply iOS configuration
+  config = withIOSMediaControl(config, options);
+  
+  // Apply Android configuration  
+  config = withAndroidMediaControl(config, options);
+
+  return config;
+};
+
+export default withExpoMediaControl;
