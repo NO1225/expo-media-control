@@ -188,14 +188,26 @@ public class ExpoMediaControlModule: Module {
 
   /**
    * Disable media controls implementation
-   * Cleans up all handlers and resets state
+   * Cleans up all handlers, audio session, and resets state
    */
   private func disableMediaControls() async throws {
     // Unregister all remote command handlers
     unregisterRemoteCommandHandlers()
     
+    // Stop receiving remote control events
+    UIApplication.shared.endReceivingRemoteControlEvents()
+    
     // Clear now playing info
     nowPlayingInfoCenter.nowPlayingInfo = nil
+    
+    // Try to deactivate audio session cleanly
+    do {
+      try audioSession.setActive(false, options: .notifyOthersOnDeactivation)
+      print("📱 Audio session deactivated successfully")
+    } catch {
+      print("⚠️ Failed to deactivate audio session: \(error)")
+      // Don't throw - not critical for cleanup
+    }
     
     // Reset state
     isControlsEnabled = false
@@ -338,13 +350,17 @@ public class ExpoMediaControlModule: Module {
   // =============================================
 
   /**
-   * Configure audio session for media playbook
+   * Configure audio session for media playback
    * Sets up the audio session category and activates it for background playback
+   * Includes comprehensive error handling and fallback strategies
    */
   private func configureAudioSession() async throws {
     try await MainActor.run {
       do {
-        // First try to set the category without activating
+        // First deactivate any existing session to avoid conflicts
+        try? audioSession.setActive(false, options: .notifyOthersOnDeactivation)
+        
+        // Try primary configuration with all features
         try audioSession.setCategory(
           .playback,
           mode: .default,
@@ -353,35 +369,75 @@ public class ExpoMediaControlModule: Module {
         
         print("📱 Audio session category set successfully")
         
-        // Then try to activate
+        // Try to activate with notification to other apps
         try audioSession.setActive(true, options: [])
         
         // Begin receiving remote control events
         UIApplication.shared.beginReceivingRemoteControlEvents()
         
-        print("📱 Audio session activated successfully")
-        print("📱 Began receiving remote control events")
+        print("📱 Audio session activated successfully with full features")
         
-      } catch let error as NSError where error.domain == NSOSStatusErrorDomain && error.code == -50 {
-        // OSStatus -50 = kAudioServicesSystemSoundInvalidParameterError
-        print("⚠️ Parameter error, trying fallback audio session configuration...")
+      } catch let error as NSError where error.domain == NSOSStatusErrorDomain {
+        print("⚠️ Audio session error (OSStatus \(error.code)), trying fallbacks...")
         
-        // Try with minimal configuration
-        try audioSession.setCategory(.playback, mode: .default, options: [])
-        try audioSession.setActive(true, options: [])
-        
-        // Begin receiving remote control events
-        UIApplication.shared.beginReceivingRemoteControlEvents()
-        
-        print("📱 Audio session configured with fallback settings")
-        print("📱 Began receiving remote control events")
+        do {
+          // Fallback 1: Try without Bluetooth options
+          try audioSession.setCategory(.playback, mode: .default, options: [.allowAirPlay])
+          try audioSession.setActive(true, options: [])
+          UIApplication.shared.beginReceivingRemoteControlEvents()
+          
+          print("📱 Audio session configured with fallback 1 (no Bluetooth)")
+          
+        } catch {
+          print("⚠️ Fallback 1 failed, trying minimal configuration...")
+          
+          do {
+            // Fallback 2: Minimal configuration
+            try audioSession.setCategory(.playback, mode: .default, options: [])
+            try audioSession.setActive(true, options: [])
+            UIApplication.shared.beginReceivingRemoteControlEvents()
+            
+            print("📱 Audio session configured with minimal settings")
+            
+          } catch {
+            print("⚠️ Minimal configuration failed, trying last resort...")
+            
+            // Fallback 3: Just set category without activation (for apps that manage their own session)
+            try audioSession.setCategory(.playback)
+            UIApplication.shared.beginReceivingRemoteControlEvents()
+            
+            print("📱 Audio session category set without activation")
+          }
+        }
         
       } catch let error as NSError {
-        print("❌ Failed to configure audio session: \(error.localizedDescription) (Domain: \(error.domain), Code: \(error.code))")
-        throw error
+        print("❌ Failed to configure audio session: \(error.localizedDescription)")
+        print("   Domain: \(error.domain), Code: \(error.code)")
+        
+        // Last resort: try to at least enable remote control events
+        do {
+          UIApplication.shared.beginReceivingRemoteControlEvents()
+          print("📱 At least remote control events are enabled")
+        } catch {
+          print("❌ Complete audio session configuration failure")
+        }
+        
+        // Don't throw here - allow module to work without perfect audio session
+        print("⚠️ Continuing with imperfect audio session setup")
+        
       } catch {
-        print("❌ Failed to configure audio session: \(error)")
-        throw error
+        print("❌ Unexpected error configuring audio session: \(error)")
+        
+        // Try minimal setup
+        do {
+          UIApplication.shared.beginReceivingRemoteControlEvents()
+          print("📱 Remote control events enabled despite session error")
+        } catch {
+          print("❌ Total audio session failure")
+        }
+        
+        // Don't throw - be resilient
+        print("⚠️ Continuing despite audio session issues")
       }
     }
   }

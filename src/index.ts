@@ -13,6 +13,11 @@ export {
   MediaControlEventListener,
   AudioInterruptionListener,
   VolumeChangeListener,
+  // Error types
+  MediaControlError,
+  ValidationError,
+  NativeError,
+  NotEnabledError,
 } from './ExpoMediaControlModule';
 
 import ExpoMediaControlModule from './ExpoMediaControlModule';

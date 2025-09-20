@@ -58,8 +58,8 @@ export default function App() {
       title: 'Test Artwork Track',
       artist: 'RadDy Questions',
       album: 'Logo Test Album',
-      duration: 180, // 3:00
-      artwork: 'https://raddyquestions.com/assets/img/logo/logo.png',
+      duration: 15, // 0:15
+      artwork: 'https://via.placeholder.com/300x300/4CAF50/FFFFFF?text=Nature',
       url: 'https://download.samplelib.com/mp3/sample-15s.mp3'
     },
     {

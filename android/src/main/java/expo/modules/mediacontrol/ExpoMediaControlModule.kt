@@ -14,6 +14,7 @@ import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
+import android.os.Looper
 import android.support.v4.media.MediaBrowserCompat
 import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.RatingCompat
@@ -25,9 +26,12 @@ import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import expo.modules.kotlin.Promise
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.cancel
 import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
 
@@ -69,9 +73,11 @@ class ExpoMediaControlModule : Module() {
   private var currentMetadata: MutableMap<String, Any> = ConcurrentHashMap()
   
   /// Current playback state
+  @Volatile
   private var currentPlaybackState: Int = PLAYBACK_STATE_NONE
   
   /// Current playback position in milliseconds
+  @Volatile
   private var currentPosition: Long = 0L
   
   /// Whether media controls are currently enabled
@@ -105,6 +111,9 @@ class ExpoMediaControlModule : Module() {
   
   /// Whether we currently have audio focus
   private var hasAudioFocus: Boolean = false
+  
+  /// Coroutine scope for managing async operations with proper lifecycle
+  private var moduleScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
   // =============================================
   // MODULE DEFINITION
@@ -220,6 +229,22 @@ class ExpoMediaControlModule : Module() {
     
     /// Events that can be sent to JavaScript
     Events("mediaControlEvent", "audioInterruption", "volumeChange")
+    
+    // =============================================
+    // LIFECYCLE MANAGEMENT
+    // Ensure proper cleanup when module is destroyed
+    // =============================================
+    
+    OnDestroy {
+      try {
+        if (isControlsEnabled) {
+          disableMediaControls()
+        }
+        println("🤖 ExpoMediaControl module destroyed and cleaned up")
+      } catch (e: Exception) {
+        println("⚠️ Error during module cleanup: ${e.message}")
+      }
+    }
   }
 
   // =============================================
@@ -233,6 +258,14 @@ class ExpoMediaControlModule : Module() {
    */
   private fun enableMediaControls(options: Map<String, Any>) {
     try {
+      // Recreate coroutine scope to ensure it's fresh
+      try {
+        moduleScope.cancel() // Cancel any existing scope
+      } catch (e: Exception) {
+        // Ignore errors when canceling
+      }
+      moduleScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+      
       // Store configuration options
       controlOptions.clear()
       controlOptions.putAll(options)
@@ -264,18 +297,43 @@ class ExpoMediaControlModule : Module() {
    */
   private fun disableMediaControls() {
     try {
-      // Release audio focus
-      releaseAudioFocus()
+      // Cancel all ongoing coroutines to prevent memory leaks
+      try {
+        moduleScope.cancel()
+        println("🤖 Coroutine scope canceled")
+      } catch (e: Exception) {
+        println("⚠️ Error canceling coroutine scope: ${e.message}")
+      }
       
-      // Stop and release MediaSession
-      mediaSession?.let { session ->
-        session.isActive = false
-        session.release()
+      // Release audio focus
+      try {
+        releaseAudioFocus()
+      } catch (e: Exception) {
+        println("⚠️ Error releasing audio focus: ${e.message}")
+      }
+      
+      // Stop and release MediaSession with proper error handling
+      try {
+        mediaSession?.let { session ->
+          if (session.isActive) {
+            session.isActive = false
+          }
+          session.release()
+          mediaSession = null
+          println("🤖 MediaSession released successfully")
+        }
+      } catch (e: Exception) {
+        println("⚠️ Error releasing MediaSession: ${e.message}")
+        // Still set to null to prevent further usage
         mediaSession = null
       }
       
       // Remove notification
-      notificationManager?.cancel(NOTIFICATION_ID)
+      try {
+        notificationManager?.cancel(NOTIFICATION_ID)
+      } catch (e: Exception) {
+        println("⚠️ Error canceling notification: ${e.message}")
+      }
       
       // Reset state
       isControlsEnabled = false
@@ -297,9 +355,11 @@ class ExpoMediaControlModule : Module() {
    */
   private fun updateMetadata(metadata: Map<String, Any>) {
     try {
-      // Store current metadata
-      currentMetadata.clear()
-      currentMetadata.putAll(metadata)
+      // Store current metadata with thread-safe access
+      synchronized(currentMetadata) {
+        currentMetadata.clear()
+        currentMetadata.putAll(metadata)
+      }
       
       // Build MediaMetadata
       val metadataBuilder = MediaMetadataCompat.Builder()
@@ -326,8 +386,8 @@ class ExpoMediaControlModule : Module() {
       val artworkUri = artworkMap?.get("uri") as? String
       
       if (artworkUri != null) {
-        // Load artwork asynchronously
-        GlobalScope.launch(Dispatchers.IO) {
+        // Load artwork asynchronously with proper scope management
+        moduleScope.launch(Dispatchers.IO) {
           try {
             println("🤖 Loading artwork from: $artworkUri")
             val bitmap = loadArtwork(artworkUri)
@@ -348,7 +408,7 @@ class ExpoMediaControlModule : Module() {
           } catch (e: Exception) {
             println("❌ Failed to load artwork: ${e.message}")
             e.printStackTrace()
-            // Update without artwork
+            // Update without artwork on main thread
             withContext(Dispatchers.Main) {
               mediaSession?.setMetadata(metadataBuilder.build())
               updateNotification()
@@ -590,9 +650,18 @@ class ExpoMediaControlModule : Module() {
   /**
    * Update or create media notification
    * Builds and displays notification with current metadata and playback state
+   * Thread-safe: always executes on main thread with synchronized data access
    */
   private fun updateNotification() {
     if (!isControlsEnabled || mediaSession == null) return
+    
+    // Ensure we're on the main thread for UI operations
+    if (Thread.currentThread() != Looper.getMainLooper().thread) {
+      moduleScope.launch(Dispatchers.Main) {
+        updateNotification()
+      }
+      return
+    }
     
     try {
       val context = appContext.reactContext
@@ -605,46 +674,84 @@ class ExpoMediaControlModule : Module() {
       
       val sessionToken = mediaSession!!.sessionToken
       
-      // Create notification with media style
+      // Take a synchronized snapshot of current state to avoid race conditions
+      val metadataSnapshot = synchronized(currentMetadata) { 
+        currentMetadata.toMap() 
+      }
+      val playbackStateSnapshot = currentPlaybackState
+      
+      // Create notification with media style using synchronized data
       val builder = NotificationCompat.Builder(context, NOTIFICATION_CHANNEL_ID)
         .setStyle(
           MediaNotificationCompat.MediaStyle()
             .setMediaSession(sessionToken)
             .setShowActionsInCompactView() // No custom actions for now
         )
-        .setContentTitle(currentMetadata["title"]?.toString() ?: "Unknown Title")
-        .setContentText(currentMetadata["artist"]?.toString() ?: "Unknown Artist")
-        .setSubText(currentMetadata["album"]?.toString())
+        .setContentTitle(metadataSnapshot["title"]?.toString() ?: "Unknown Title")
         .setSmallIcon(getSmallIconResource())
         .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
         .setPriority(NotificationCompat.PRIORITY_LOW)
-        .setOngoing(currentPlaybackState == PLAYBACK_STATE_PLAYING)
+        .setOngoing(playbackStateSnapshot == PLAYBACK_STATE_PLAYING)
         .setShowWhen(false)
+      
+      // Set artist only if provided
+      metadataSnapshot["artist"]?.toString()?.let { artist ->
+        if (artist.isNotBlank()) {
+          builder.setContentText(artist)
+        }
+      }
+      
+      // Set album only if provided  
+      metadataSnapshot["album"]?.toString()?.let { album ->
+        if (album.isNotBlank()) {
+          builder.setSubText(album)
+        }
+      }
       
       // Add actions based on current state (simplified for now)
       addNotificationActions(builder)
       
       // Try to load and set artwork for notification
-      val artworkMap = currentMetadata["artwork"] as? Map<String, Any>
+      val artworkMap = metadataSnapshot["artwork"] as? Map<String, Any>
       val artworkUri = artworkMap?.get("uri") as? String
       if (artworkUri != null) {
-        GlobalScope.launch(Dispatchers.IO) {
+        moduleScope.launch(Dispatchers.IO) {
           try {
             val bitmap = loadArtwork(artworkUri)
-            if (bitmap != null) {
-              builder.setLargeIcon(bitmap)
-              println("🤖 Notification artwork set: ${bitmap.width}x${bitmap.height}")
-            }
             withContext(Dispatchers.Main) {
-              notifManager.notify(NOTIFICATION_ID, builder.build())
+              try {
+                if (bitmap != null) {
+                  builder.setLargeIcon(bitmap)
+                  println("🤖 Notification artwork set: ${bitmap.width}x${bitmap.height}")
+                }
+                notifManager.notify(NOTIFICATION_ID, builder.build())
+              } catch (e: Exception) {
+                println("❌ Failed to update notification with artwork: ${e.message}")
+                // Try without artwork
+                try {
+                  notifManager.notify(NOTIFICATION_ID, builder.build())
+                } catch (e2: Exception) {
+                  println("❌ Failed to show notification at all: ${e2.message}")
+                }
+              }
             }
           } catch (e: Exception) {
             println("❌ Failed to load notification artwork: ${e.message}")
-            notifManager.notify(NOTIFICATION_ID, builder.build())
+            withContext(Dispatchers.Main) {
+              try {
+                notifManager.notify(NOTIFICATION_ID, builder.build())
+              } catch (e2: Exception) {
+                println("❌ Failed to show notification: ${e2.message}")
+              }
+            }
           }
         }
       } else {
-        notifManager.notify(NOTIFICATION_ID, builder.build())
+        try {
+          notifManager.notify(NOTIFICATION_ID, builder.build())
+        } catch (e: Exception) {
+          println("❌ Failed to show notification: ${e.message}")
+        }
       }
       
       println("🤖 Notification updated successfully")

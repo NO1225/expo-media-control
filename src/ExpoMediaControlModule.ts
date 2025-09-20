@@ -1,6 +1,176 @@
 import { EventEmitter, NativeModule, requireNativeModule } from 'expo';
 
 // =============================================
+// CUSTOM ERROR TYPES
+// =============================================
+
+/**
+ * Base error class for media control errors
+ */
+export class MediaControlError extends Error {
+  constructor(message: string, public readonly code?: string, public readonly cause?: Error) {
+    super(message);
+    this.name = 'MediaControlError';
+  }
+}
+
+/**
+ * Error thrown when validation fails
+ */
+export class ValidationError extends MediaControlError {
+  constructor(message: string, public readonly field?: string) {
+    super(message, 'VALIDATION_ERROR');
+    this.name = 'ValidationError';
+  }
+}
+
+/**
+ * Error thrown when native module operations fail
+ */
+export class NativeError extends MediaControlError {
+  constructor(message: string, code?: string, cause?: Error) {
+    super(message, code, cause);
+    this.name = 'NativeError';
+  }
+}
+
+/**
+ * Error thrown when media controls are not enabled
+ */
+export class NotEnabledError extends MediaControlError {
+  constructor(message: string = 'Media controls are not enabled') {
+    super(message, 'NOT_ENABLED');
+    this.name = 'NotEnabledError';
+  }
+}
+
+// =============================================
+// VALIDATION UTILITIES
+// =============================================
+
+/**
+ * Validates media metadata input
+ */
+function validateMetadata(metadata: any): asserts metadata is MediaMetadata {
+  if (!metadata || typeof metadata !== 'object') {
+    throw new ValidationError('Metadata must be an object', 'metadata');
+  }
+
+  // Validate optional string fields
+  const stringFields = ['title', 'artist', 'album', 'genre', 'date'];
+  for (const field of stringFields) {
+    if (metadata[field] !== undefined && typeof metadata[field] !== 'string') {
+      throw new ValidationError(`${field} must be a string`, field);
+    }
+  }
+
+  // Validate optional number fields
+  const numberFields = ['duration', 'elapsedTime', 'trackNumber', 'albumTrackCount'];
+  for (const field of numberFields) {
+    if (metadata[field] !== undefined && typeof metadata[field] !== 'number') {
+      throw new ValidationError(`${field} must be a number`, field);
+    }
+    if (metadata[field] !== undefined && metadata[field] < 0) {
+      throw new ValidationError(`${field} must be non-negative`, field);
+    }
+  }
+
+  // Validate artwork
+  if (metadata.artwork !== undefined) {
+    if (!metadata.artwork || typeof metadata.artwork !== 'object') {
+      throw new ValidationError('artwork must be an object', 'artwork');
+    }
+    if (typeof metadata.artwork.uri !== 'string' || metadata.artwork.uri.length === 0) {
+      throw new ValidationError('artwork.uri must be a non-empty string', 'artwork.uri');
+    }
+    if (metadata.artwork.width !== undefined && typeof metadata.artwork.width !== 'number') {
+      throw new ValidationError('artwork.width must be a number', 'artwork.width');
+    }
+    if (metadata.artwork.height !== undefined && typeof metadata.artwork.height !== 'number') {
+      throw new ValidationError('artwork.height must be a number', 'artwork.height');
+    }
+  }
+
+  // Validate rating
+  if (metadata.rating !== undefined) {
+    if (!metadata.rating || typeof metadata.rating !== 'object') {
+      throw new ValidationError('rating must be an object', 'rating');
+    }
+    if (!Object.values(RatingType).includes(metadata.rating.type)) {
+      throw new ValidationError('rating.type must be a valid RatingType', 'rating.type');
+    }
+    if (typeof metadata.rating.value !== 'boolean' && typeof metadata.rating.value !== 'number') {
+      throw new ValidationError('rating.value must be a boolean or number', 'rating.value');
+    }
+  }
+}
+
+/**
+ * Validates playback state input
+ */
+function validatePlaybackState(state: any): asserts state is PlaybackState {
+  if (typeof state !== 'number') {
+    throw new ValidationError('Playback state must be a number', 'state');
+  }
+  if (!Object.values(PlaybackState).includes(state)) {
+    throw new ValidationError('Invalid playback state value', 'state');
+  }
+}
+
+/**
+ * Validates position input
+ */
+function validatePosition(position: any): asserts position is number {
+  if (typeof position !== 'number') {
+    throw new ValidationError('Position must be a number', 'position');
+  }
+  if (position < 0) {
+    throw new ValidationError('Position must be non-negative', 'position');
+  }
+  if (!isFinite(position)) {
+    throw new ValidationError('Position must be finite', 'position');
+  }
+}
+
+/**
+ * Validates media control options
+ */
+function validateMediaControlOptions(options: any): asserts options is MediaControlOptions {
+  if (!options || typeof options !== 'object') {
+    throw new ValidationError('Options must be an object', 'options');
+  }
+
+  if (options.capabilities !== undefined) {
+    if (!Array.isArray(options.capabilities)) {
+      throw new ValidationError('capabilities must be an array', 'capabilities');
+    }
+    for (const capability of options.capabilities) {
+      if (!Object.values(Command).includes(capability)) {
+        throw new ValidationError(`Invalid capability: ${capability}`, 'capabilities');
+      }
+    }
+  }
+
+  if (options.notification !== undefined) {
+    if (typeof options.notification !== 'object') {
+      throw new ValidationError('notification must be an object', 'notification');
+    }
+  }
+
+  if (options.ios !== undefined) {
+    if (typeof options.ios !== 'object') {
+      throw new ValidationError('ios must be an object', 'ios');
+    }
+  }
+
+  if (options.android !== undefined) {
+    if (typeof options.android !== 'object') {
+      throw new ValidationError('android must be an object', 'android');
+    }
+  }
+}
+
+// =============================================
 // TYPE DEFINITIONS
 // =============================================
 
@@ -231,6 +401,11 @@ class ExtendedExpoMediaControlModule {
    */
   enableMediaControls = async (options?: MediaControlOptions): Promise<void> => {
     try {
+      // Validate input
+      if (options !== undefined) {
+        validateMediaControlOptions(options);
+      }
+
       await nativeModule.enableMediaControls(options);
 
       // Add native event listeners
@@ -238,8 +413,17 @@ class ExtendedExpoMediaControlModule {
       (nativeModule as any).addListener('audioInterruptionEvent', this._dispatchAudioInterruptionEvent);
       (nativeModule as any).addListener('volumeChangeEvent', this._dispatchVolumeChangeEvent);
     } catch (error) {
-      console.error('Failed to enable media controls:', error);
-      throw error;
+      if (error instanceof ValidationError) {
+        throw error;
+      }
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const nativeError = new NativeError(
+        `Failed to enable media controls: ${errorMessage}`,
+        'ENABLE_FAILED',
+        error instanceof Error ? error : undefined
+      );
+      console.error(nativeError.message);
+      throw nativeError;
     }
   };
 
@@ -267,10 +451,22 @@ class ExtendedExpoMediaControlModule {
    */
   updateMetadata = async (metadata: MediaMetadata): Promise<void> => {
     try {
+      // Validate input
+      validateMetadata(metadata);
+
       await nativeModule.updateMetadata(metadata);
     } catch (error) {
-      console.error('Failed to update metadata:', error);
-      throw error;
+      if (error instanceof ValidationError) {
+        throw error;
+      }
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const nativeError = new NativeError(
+        `Failed to update metadata: ${errorMessage}`,
+        'UPDATE_METADATA_FAILED',
+        error instanceof Error ? error : undefined
+      );
+      console.error(nativeError.message);
+      throw nativeError;
     }
   };
 
@@ -280,10 +476,25 @@ class ExtendedExpoMediaControlModule {
    */
   updatePlaybackState = async (state: PlaybackState, position?: number): Promise<void> => {
     try {
+      // Validate input
+      validatePlaybackState(state);
+      if (position !== undefined) {
+        validatePosition(position);
+      }
+
       await nativeModule.updatePlaybackState(state, position);
     } catch (error) {
-      console.error('Failed to update playback state:', error);
-      throw error;
+      if (error instanceof ValidationError) {
+        throw error;
+      }
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const nativeError = new NativeError(
+        `Failed to update playback state: ${errorMessage}`,
+        'UPDATE_STATE_FAILED',
+        error instanceof Error ? error : undefined
+      );
+      console.error(nativeError.message);
+      throw nativeError;
     }
   };
 

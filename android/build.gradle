@@ -41,3 +41,13 @@ android {
     abortOnError false
   }
 }
+
+dependencies {
+  // Media Compat dependencies for MediaSession and notification support
+  implementation "androidx.media:media:1.7.0"
+  implementation "androidx.core:core:1.12.0"
+  
+  // Coroutines support
+  implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"
+  implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3"
+}
