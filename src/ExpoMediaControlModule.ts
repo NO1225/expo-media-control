@@ -1,4 +1,4 @@
-import { EventEmitter, NativeModule, requireNativeModule } from 'expo';
+import { NativeModule, requireNativeModule } from 'expo';
 
 // =============================================
 // CUSTOM ERROR TYPES
