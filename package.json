@@ -38,11 +38,11 @@
   "author": "Juma <safartyjumah@gmail.com> (https://github.com/NO1225)",
   "license": "MIT",
   "homepage": "https://github.com/NO1225/expo-media-control#readme",
-  "dependencies": {},
   "devDependencies": {
     "@types/react": "~19.1.0",
-    "expo-module-scripts": "^5.0.7",
+    "eslint": "^8.57.1",
     "expo": "^54.0.2",
+    "expo-module-scripts": "^5.0.7",
     "react-native": "0.81.4"
   },
   "peerDependencies": {
@@ -51,7 +51,10 @@
     "react-native": "*"
   },
   "expo": {
-    "platforms": ["ios", "android"],
+    "platforms": [
+      "ios",
+      "android"
+    ],
     "entryPoint": "./index"
   }
 }
