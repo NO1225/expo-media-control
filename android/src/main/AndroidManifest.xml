@@ -1,2 +1,30 @@
-<manifest>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <!-- Required permissions for media controls -->
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+  <uses-permission android:name="android.permission.WAKE_LOCK" />
+  <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+  
+  <!-- Optional permissions for enhanced functionality -->
+  <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+  
+  <application>
+    <!-- Media button receiver for handling hardware media button events -->
+    <receiver 
+      android:name="androidx.media.session.MediaButtonReceiver"
+      android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MEDIA_BUTTON" />
+      </intent-filter>
+    </receiver>
+    
+    <!-- Foreground service for media playback (optional, for apps that need background service) -->
+    <service
+      android:name="expo.modules.mediacontrol.MediaPlaybackService"
+      android:exported="false"
+      android:foregroundServiceType="mediaPlayback">
+      <intent-filter>
+        <action android:name="androidx.media.browse.MediaBrowserService" />
+      </intent-filter>
+    </service>
+  </application>
 </manifest>

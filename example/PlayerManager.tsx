@@ -29,7 +29,7 @@ class Audio {
         this.title = title;
         this.player = createAudioPlayer(url, {
             updateInterval: UPDATE_INTERVAL,
-            
+
         });
         this.next = null;
         this.prev = null;
@@ -177,7 +177,7 @@ export class PlayerManager {
         id: string;
         title: string;
         url: string;
-    }[], startWithId?: string) {
+    }[], autoPlay?: boolean, startWithId?: string) {
         this.clearAudio();
 
         this.audios = playList.map(item => new Audio(item.id, item.url, item.title));
@@ -237,7 +237,8 @@ export class PlayerManager {
             this.setActiveAudio(this.audios[0]);
         }
 
-        this.play();
+        if (autoPlay)
+            this.play();
     }
 
     clearAudio() {

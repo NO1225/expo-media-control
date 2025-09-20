@@ -152,7 +152,9 @@ export default function App() {
     };
     
     // Load the playlist
-    playerManager.loadPlayList(sampleTracks, sampleTracks[0].id);
+    playerManager.loadPlayList(sampleTracks, false, sampleTracks[0].id);
+
+    enableMediaControls();
     
     return () => {
       playerManager.clearAudio();

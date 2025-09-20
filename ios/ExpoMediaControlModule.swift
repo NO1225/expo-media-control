@@ -554,13 +554,11 @@ public class ExpoMediaControlModule: Module {
     
     print("📱 iOS: Preparing to send event: \(eventData)")
     
-    // TODO: Fix event sending - currently disabled to prevent crashes
-      sendEvent("mediaControlEvent", eventData)
-
-    // Need to implement proper Expo modules event emission
-    print("📱 iOS: Event would be sent: \(eventData)")
-    
-    print("📱 iOS: Event handling completed")
+    // Send event to JavaScript using proper Expo modules API
+    DispatchQueue.main.async { [weak self] in
+      self?.sendEvent("mediaControlEvent", eventData)
+      print("📱 iOS: Event sent successfully: \(command)")
+    }
   }
   
   // =============================================
