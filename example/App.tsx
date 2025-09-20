@@ -392,11 +392,9 @@ export default function App() {
         },
         ios: {
           skipInterval: 15,
-          showPlaybackPosition: true,
         },
         android: {
           requestAudioFocus: true,
-          stopForegroundGracePeriod: 5000,
         },
       });
       

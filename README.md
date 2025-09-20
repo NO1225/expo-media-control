@@ -244,11 +244,9 @@ interface MediaControlOptions {
   };
   ios?: {
     skipInterval?: number;
-    showPlaybackPosition?: boolean;
   };
   android?: {
     requestAudioFocus?: boolean;
-    stopForegroundGracePeriod?: number;
   };
 }
 
@@ -687,11 +685,9 @@ interface MediaControlOptions {
   };
   ios?: {                           // iOS-specific config
     skipInterval?: number;           // Skip interval in seconds
-    showPlaybackPosition?: boolean;  // Show position info
   };
   android?: {                       // Android-specific config
     requestAudioFocus?: boolean;     // Request audio focus
-    stopForegroundGracePeriod?: number; // Grace period in ms
   };
 }
 ```

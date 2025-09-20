@@ -266,11 +266,9 @@ export interface MediaControlOptions {
   };
   ios?: {
     skipInterval?: number;
-    showPlaybackPosition?: boolean;
   };
   android?: {
     requestAudioFocus?: boolean;
-    stopForegroundGracePeriod?: number;
   };
 }
 

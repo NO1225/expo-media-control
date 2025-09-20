@@ -47,11 +47,6 @@ const withIOSMediaControl: ConfigPlugin<MediaControlOptions> = (config, options 
       if (!backgroundModes.includes('audio')) {
         backgroundModes.push('audio');
       }
-      
-      // Add background-processing for better control handling
-      if (!backgroundModes.includes('background-processing')) {
-        backgroundModes.push('background-processing');
-      }
     }
 
     // Add audio session category configuration
