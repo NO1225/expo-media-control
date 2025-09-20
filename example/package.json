@@ -12,7 +12,8 @@
     "expo": "~54.0.6",
     "react": "19.1.0",
     "expo-media-control": "..",
-    "react-native": "0.81.4"
+    "react-native": "0.81.4",
+    "expo-audio": "~1.0.13"
   },
   "devDependencies": {
     "@types/react": "~19.1.0",

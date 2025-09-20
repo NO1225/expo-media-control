@@ -20,6 +20,7 @@ import {
   AudioInterruption,
   VolumeChange,
 } from 'expo-media-control';
+import { PlayerManager } from './PlayerManager';
 
 /**
  * Comprehensive Example App for Expo Media Control
@@ -53,65 +54,177 @@ export default function App() {
   // Sample tracks for demonstration
   const sampleTracks = [
     {
+      id: '1',
       title: 'Test Artwork Track',
       artist: 'RadDy Questions',
       album: 'Logo Test Album',
       duration: 180, // 3:00
-      artwork: 'https://raddyquestions.com/assets/img/logo/logo.png'
+      artwork: 'https://raddyquestions.com/assets/img/logo/logo.png',
+      url: 'https://download.samplelib.com/mp3/sample-15s.mp3'
     },
     {
-      title: 'Hotel California',
-      artist: 'Eagles',
-      album: 'Hotel California',
-      duration: 391, // 6:31
-      artwork: 'https://upload.wikimedia.org/wikipedia/en/4/49/Hotelcalifornia.jpg'
+      id: '2',
+      title: 'Nature Sounds',
+      artist: 'SoundJay',
+      album: 'Free Audio Samples',
+      duration: 15, // 0:15
+      artwork: 'https://via.placeholder.com/300x300/4CAF50/FFFFFF?text=Nature',
+      url: 'https://download.samplelib.com/mp3/sample-15s.mp3'
     },
     {
-      title: 'Stairway to Heaven',
-      artist: 'Led Zeppelin',
-      album: 'Led Zeppelin IV',
-      duration: 482, // 8:02
-      artwork: 'https://upload.wikimedia.org/wikipedia/en/2/26/Led_Zeppelin_-_Led_Zeppelin_IV.jpg'
+      id: '3',
+      title: 'Piano Sample',
+      artist: 'Demo Artist',
+      album: 'Demo Album',
+      duration: 30, // 0:30
+      artwork: 'https://via.placeholder.com/300x300/2196F3/FFFFFF?text=Piano',
+      url: 'https://download.samplelib.com/mp3/sample-15s.mp3'
     }
   ];
   const [currentTrackIndex, setCurrentTrackIndex] = useState(0);
 
   // =============================================
+  // PLAYER MANAGER SETUP
+  // =============================================
+  
+  const playerManager = PlayerManager.getInstance();
+
+  // =============================================
   // EVENT HANDLERS SETUP
   // =============================================
   
+  // Initialize PlayerManager
+  useEffect(() => {
+    playerManager.init();
+    
+    // Set up PlayerManager callbacks to sync with UI state
+    playerManager.onIsPlayingChanged = (id: string, isPlaying: boolean) => {
+      console.log('🎵 PlayerManager playing state changed:', isPlaying);
+      setIsPlaying(isPlaying);
+      // Update MediaControl playback state (but avoid circular updates from remote control events)
+      const currentTime = playerManager.getCurrentTime();
+      const state = isPlaying ? PlaybackState.PLAYING : PlaybackState.PAUSED;
+      
+      // Add a small delay to ensure the player state has settled
+      setTimeout(() => {
+        MediaControl.updatePlaybackState(state, currentTime).catch(error => {
+          console.error('Failed to update MediaControl playback state:', error);
+        });
+      }, 100);
+    };
+    
+    playerManager.onIsLoadingChanged = (isLoading: boolean) => {
+      // Could add a loading state here if needed
+      console.log('Player loading state:', isLoading);
+    };
+    
+    playerManager.onProgressUpdated = (id: string, currentTime: number, duration: number) => {
+      setCurrentPosition(currentTime);
+      setTrackDuration(duration);
+      // Update MediaControl with current position if playing
+      if (isPlaying) {
+        MediaControl.updatePlaybackState(PlaybackState.PLAYING, currentTime).catch(error => {
+          console.error('Failed to update MediaControl position:', error);
+        });
+      }
+    };
+    
+    playerManager.onItemChanged = (newItem: any) => {
+      // Find the index of the new item and update UI
+      const newIndex = sampleTracks.findIndex(track => track.id === newItem.id);
+      if (newIndex >= 0) {
+        setCurrentTrackIndex(newIndex);
+        const track = sampleTracks[newIndex];
+        setTrackTitle(track.title);
+        setTrackArtist(track.artist);
+        setTrackAlbum(track.album);
+        setTrackDuration(track.duration);
+        setCurrentPosition(0);
+        
+        // Update MediaControl metadata when track changes
+        updateMetadata(track);
+      }
+    };
+    
+    playerManager.onItemCompleted = (id: string) => {
+      console.log('Track completed:', id);
+      // PlayerManager will handle skipping to next automatically
+    };
+    
+    // Load the playlist
+    playerManager.loadPlayList(sampleTracks, sampleTracks[0].id);
+    
+    return () => {
+      playerManager.clearAudio();
+    };
+  }, []);
+  
   useEffect(() => {
     // Set up media control event listener
+    console.log('📱 JS: Setting up media control event listener');
     const removeMediaListener = MediaControl.addListener((event: MediaControlEvent) => {
-      console.log('📱 Media Control Event:', event);
+      console.log('📱 JS: Media Control Event received:', event);
+      console.log('📱 JS: Event command:', event.command);
+      console.log('📱 JS: Event timestamp:', event.timestamp);
       setLastEvent(`Media: ${event.command} at ${new Date(event.timestamp).toLocaleTimeString()}`);
       
-      // Handle different commands
+      // Handle different commands - delegate to PlayerManager with immediate responses
       switch (event.command) {
         case Command.PLAY:
-          handlePlay();
+          console.log('🎵 Remote PLAY command received');
+          // Direct response for remote control - don't wait for React state updates
+          playerManager.play();
+          // Update MediaControl state immediately
+          setTimeout(() => {
+            MediaControl.updatePlaybackState(PlaybackState.PLAYING, playerManager.getCurrentTime()).catch(error => {
+              console.error('Failed to update MediaControl playback state from remote play:', error);
+            });
+          }, 50);
           break;
         case Command.PAUSE:
-          handlePause();
+          console.log('🎵 Remote PAUSE command received');
+          // Direct response for remote control - don't wait for React state updates
+          playerManager.pause();
+          // Update MediaControl state immediately
+          setTimeout(() => {
+            MediaControl.updatePlaybackState(PlaybackState.PAUSED, playerManager.getCurrentTime()).catch(error => {
+              console.error('Failed to update MediaControl playback state from remote pause:', error);
+            });
+          }, 50);
           break;
         case Command.STOP:
+          console.log('🎵 Remote STOP command received');
           handleStop();
           break;
         case Command.NEXT_TRACK:
-          handleNextTrack();
+          console.log('🎵 Remote NEXT_TRACK command received');
+          playerManager.skipNext();
           break;
         case Command.PREVIOUS_TRACK:
-          handlePreviousTrack();
+          console.log('🎵 Remote PREVIOUS_TRACK command received');
+          playerManager.skipPrev();
           break;
         case Command.SKIP_FORWARD:
-          handleSkipForward(event.data?.interval || 15);
+          // Skip forward by interval (convert seconds to ratio)
+          const currentTime = playerManager.getCurrentTime();
+          const duration = playerManager.getDuration();
+          const interval = event.data?.interval || 15;
+          const newPosition = Math.min(currentTime + interval, duration);
+          playerManager.seekTo(newPosition / duration);
           break;
         case Command.SKIP_BACKWARD:
-          handleSkipBackward(event.data?.interval || 15);
+          // Skip backward by interval (convert seconds to ratio)
+          const currentTimeBack = playerManager.getCurrentTime();
+          const durationBack = playerManager.getDuration();
+          const intervalBack = event.data?.interval || 15;
+          const newPositionBack = Math.max(currentTimeBack - intervalBack, 0);
+          playerManager.seekTo(newPositionBack / durationBack);
           break;
         case Command.SEEK:
           if (event.data?.position !== undefined) {
-            handleSeek(event.data.position);
+            // Convert absolute position to ratio
+            const seekDuration = playerManager.getDuration();
+            playerManager.seekTo(event.data.position / seekDuration);
           }
           break;
         case Command.SET_RATING:
@@ -157,8 +270,8 @@ export default function App() {
   
   const handlePlay = async () => {
     try {
-      setIsPlaying(true);
-      await MediaControl.updatePlaybackState(PlaybackState.PLAYING, currentPosition);
+      playerManager.play();
+      await MediaControl.updatePlaybackState(PlaybackState.PLAYING, playerManager.getCurrentTime());
       console.log('▶️ Playing');
     } catch (error) {
       console.error('Failed to play:', error);
@@ -168,8 +281,8 @@ export default function App() {
 
   const handlePause = async () => {
     try {
-      setIsPlaying(false);
-      await MediaControl.updatePlaybackState(PlaybackState.PAUSED, currentPosition);
+      playerManager.pause();
+      await MediaControl.updatePlaybackState(PlaybackState.PAUSED, playerManager.getCurrentTime());
       console.log('⏸️ Paused');
     } catch (error) {
       console.error('Failed to pause:', error);
@@ -179,7 +292,9 @@ export default function App() {
 
   const handleStop = async () => {
     try {
-      setIsPlaying(false);
+      // PlayerManager doesn't have a direct stop method, so we'll pause and seek to start
+      playerManager.pause();
+      playerManager.seekTo(0);
       setCurrentPosition(0);
       await MediaControl.updatePlaybackState(PlaybackState.STOPPED, 0);
       console.log('⏹️ Stopped');
@@ -190,33 +305,37 @@ export default function App() {
   };
 
   const handleNextTrack = () => {
-    const nextIndex = (currentTrackIndex + 1) % sampleTracks.length;
-    switchTrack(nextIndex);
+    playerManager.skipNext();
   };
 
   const handlePreviousTrack = () => {
-    const prevIndex = currentTrackIndex === 0 ? sampleTracks.length - 1 : currentTrackIndex - 1;
-    switchTrack(prevIndex);
+    playerManager.skipPrev();
   };
 
   const handleSkipForward = (interval: number) => {
-    const newPosition = Math.min(currentPosition + interval, trackDuration);
-    setCurrentPosition(newPosition);
+    const currentTime = playerManager.getCurrentTime();
+    const duration = playerManager.getDuration();
+    const newPosition = Math.min(currentTime + interval, duration);
+    playerManager.seekTo(newPosition / duration);
     if (isPlaying) {
       MediaControl.updatePlaybackState(PlaybackState.PLAYING, newPosition);
     }
   };
 
   const handleSkipBackward = (interval: number) => {
-    const newPosition = Math.max(currentPosition - interval, 0);
-    setCurrentPosition(newPosition);
+    const currentTime = playerManager.getCurrentTime();
+    const duration = playerManager.getDuration();
+    const newPosition = Math.max(currentTime - interval, 0);
+    playerManager.seekTo(newPosition / duration);
     if (isPlaying) {
       MediaControl.updatePlaybackState(PlaybackState.PLAYING, newPosition);
     }
   };
 
   const handleSeek = (position: number) => {
-    const newPosition = Math.max(0, Math.min(position, trackDuration));
+    const duration = playerManager.getDuration();
+    const newPosition = Math.max(0, Math.min(position, duration));
+    playerManager.seekTo(newPosition / duration);
     setCurrentPosition(newPosition);
     if (isPlaying) {
       MediaControl.updatePlaybackState(PlaybackState.PLAYING, newPosition);
@@ -228,16 +347,21 @@ export default function App() {
   };
 
   const switchTrack = (index: number) => {
-    setCurrentTrackIndex(index);
-    const track = sampleTracks[index];
-    setTrackTitle(track.title);
-    setTrackArtist(track.artist);
-    setTrackAlbum(track.album);
-    setTrackDuration(track.duration);
-    setCurrentPosition(0);
-    
-    // Update metadata immediately
-    updateMetadata(track);
+    if (index >= 0 && index < sampleTracks.length) {
+      setCurrentTrackIndex(index);
+      const track = sampleTracks[index];
+      setTrackTitle(track.title);
+      setTrackArtist(track.artist);
+      setTrackAlbum(track.album);
+      setTrackDuration(track.duration);
+      setCurrentPosition(0);
+      
+      // Tell PlayerManager to start playing this track
+      playerManager.startPlayingAtId(track.id);
+      
+      // Update metadata immediately
+      updateMetadata(track);
+    }
   };
 
   // =============================================

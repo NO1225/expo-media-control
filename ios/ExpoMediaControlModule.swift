@@ -147,21 +147,43 @@ public class ExpoMediaControlModule: Module {
    * Sets up audio session, registers command handlers, and prepares for media control
    */
   private func enableMediaControls(options: [String: Any]?) async throws {
-    // Store configuration options
-    if let opts = options {
-      controlOptions = opts
+    // Don't enable if already enabled
+    if isControlsEnabled {
+      print("📱 Media controls already enabled")
+      return
     }
     
-    // Configure audio session for playback
-    try await configureAudioSession()
-    
-    // Register remote command handlers
-    registerRemoteCommandHandlers()
-    
-    // Mark controls as enabled
-    isControlsEnabled = true
-    
-    print("📱 Media controls enabled successfully")
+    do {
+      // Store configuration options
+      if let opts = options {
+        controlOptions = opts
+      }
+      
+      // Configure audio session for playback (this might fail with OSStatus -50)
+      try await configureAudioSession()
+      
+      // Register remote command handlers on main thread
+      await MainActor.run {
+        registerRemoteCommandHandlers()
+      }
+      
+      // Mark controls as enabled
+      isControlsEnabled = true
+      
+      print("📱 Media controls enabled successfully")
+    } catch let error as NSError {
+      print("❌ Failed to enable media controls: \(error.localizedDescription) (Code: \(error.code))")
+      // Clean up partial state
+      isControlsEnabled = false
+      controlOptions.removeAll()
+      throw error
+    } catch {
+      print("❌ Failed to enable media controls: \(error)")
+      // Clean up partial state
+      isControlsEnabled = false
+      controlOptions.removeAll()
+      throw error
+    }
   }
 
   /**
@@ -316,21 +338,51 @@ public class ExpoMediaControlModule: Module {
   // =============================================
 
   /**
-   * Configure audio session for media playback
+   * Configure audio session for media playbook
    * Sets up the audio session category and activates it for background playback
    */
   private func configureAudioSession() async throws {
-    do {
-      // Set audio session category for playback
-      try audioSession.setCategory(.playback, mode: .default, options: [.allowBluetooth, .allowBluetoothA2DP])
-      
-      // Activate the audio session
-      try audioSession.setActive(true)
-      
-      print("📱 Audio session configured for playback")
-    } catch {
-      print("❌ Failed to configure audio session: \(error)")
-      throw error
+    try await MainActor.run {
+      do {
+        // First try to set the category without activating
+        try audioSession.setCategory(
+          .playback,
+          mode: .default,
+          options: [.allowBluetooth, .allowBluetoothA2DP, .allowAirPlay]
+        )
+        
+        print("📱 Audio session category set successfully")
+        
+        // Then try to activate
+        try audioSession.setActive(true, options: [])
+        
+        // Begin receiving remote control events
+        UIApplication.shared.beginReceivingRemoteControlEvents()
+        
+        print("📱 Audio session activated successfully")
+        print("📱 Began receiving remote control events")
+        
+      } catch let error as NSError where error.domain == NSOSStatusErrorDomain && error.code == -50 {
+        // OSStatus -50 = kAudioServicesSystemSoundInvalidParameterError
+        print("⚠️ Parameter error, trying fallback audio session configuration...")
+        
+        // Try with minimal configuration
+        try audioSession.setCategory(.playback, mode: .default, options: [])
+        try audioSession.setActive(true, options: [])
+        
+        // Begin receiving remote control events
+        UIApplication.shared.beginReceivingRemoteControlEvents()
+        
+        print("📱 Audio session configured with fallback settings")
+        print("📱 Began receiving remote control events")
+        
+      } catch let error as NSError {
+        print("❌ Failed to configure audio session: \(error.localizedDescription) (Domain: \(error.domain), Code: \(error.code))")
+        throw error
+      } catch {
+        print("❌ Failed to configure audio session: \(error)")
+        throw error
+      }
     }
   }
 
@@ -346,9 +398,10 @@ public class ExpoMediaControlModule: Module {
   private func registerRemoteCommandHandlers() {
     let commandCenter = remoteCommandCenter
     
-    // Play command
+    // Play command - using closure-based approach (more reliable for Expo modules)
     commandCenter.playCommand.isEnabled = true
     commandCenter.playCommand.addTarget { [weak self] event in
+      print("📱 iOS: Play command received from remote control")
       self?.handleRemoteCommand(command: "play", data: nil)
       return .success
     }
@@ -356,6 +409,7 @@ public class ExpoMediaControlModule: Module {
     // Pause command
     commandCenter.pauseCommand.isEnabled = true
     commandCenter.pauseCommand.addTarget { [weak self] event in
+      print("📱 iOS: Pause command received from remote control")
       self?.handleRemoteCommand(command: "pause", data: nil)
       return .success
     }
@@ -363,6 +417,7 @@ public class ExpoMediaControlModule: Module {
     // Stop command
     commandCenter.stopCommand.isEnabled = true
     commandCenter.stopCommand.addTarget { [weak self] event in
+      print("📱 iOS: Stop command received from remote control")
       self?.handleRemoteCommand(command: "stop", data: nil)
       return .success
     }
@@ -370,6 +425,7 @@ public class ExpoMediaControlModule: Module {
     // Next track command
     commandCenter.nextTrackCommand.isEnabled = true
     commandCenter.nextTrackCommand.addTarget { [weak self] event in
+      print("📱 iOS: Next track command received from remote control")
       self?.handleRemoteCommand(command: "nextTrack", data: nil)
       return .success
     }
@@ -377,6 +433,7 @@ public class ExpoMediaControlModule: Module {
     // Previous track command
     commandCenter.previousTrackCommand.isEnabled = true
     commandCenter.previousTrackCommand.addTarget { [weak self] event in
+      print("📱 iOS: Previous track command received from remote control")
       self?.handleRemoteCommand(command: "previousTrack", data: nil)
       return .success
     }
@@ -386,9 +443,12 @@ public class ExpoMediaControlModule: Module {
       commandCenter.skipForwardCommand.isEnabled = true
       commandCenter.skipForwardCommand.preferredIntervals = [NSNumber(value: skipInterval)]
       commandCenter.skipForwardCommand.addTarget { [weak self] event in
+        print("📱 iOS: Skip forward command received from remote control")
+        var data: [String: Any] = [:]
         if let skipEvent = event as? MPSkipIntervalCommandEvent {
-          self?.handleRemoteCommand(command: "skipForward", data: ["interval": skipEvent.interval])
+          data["interval"] = skipEvent.interval
         }
+        self?.handleRemoteCommand(command: "skipForward", data: data)
         return .success
       }
     }
@@ -398,9 +458,12 @@ public class ExpoMediaControlModule: Module {
       commandCenter.skipBackwardCommand.isEnabled = true
       commandCenter.skipBackwardCommand.preferredIntervals = [NSNumber(value: skipInterval)]
       commandCenter.skipBackwardCommand.addTarget { [weak self] event in
+        print("📱 iOS: Skip backward command received from remote control")
+        var data: [String: Any] = [:]
         if let skipEvent = event as? MPSkipIntervalCommandEvent {
-          self?.handleRemoteCommand(command: "skipBackward", data: ["interval": skipEvent.interval])
+          data["interval"] = skipEvent.interval
         }
+        self?.handleRemoteCommand(command: "skipBackward", data: data)
         return .success
       }
     }
@@ -408,21 +471,26 @@ public class ExpoMediaControlModule: Module {
     // Seek command
     commandCenter.changePlaybackPositionCommand.isEnabled = true
     commandCenter.changePlaybackPositionCommand.addTarget { [weak self] event in
+      print("📱 iOS: Change playback position command received from remote control")
+      var data: [String: Any] = [:]
       if let seekEvent = event as? MPChangePlaybackPositionCommandEvent {
-        self?.handleRemoteCommand(command: "seek", data: ["position": seekEvent.positionTime])
+        data["position"] = seekEvent.positionTime
       }
+      self?.handleRemoteCommand(command: "seek", data: data)
       return .success
     }
     
     // Rating commands (like/dislike)
     commandCenter.likeCommand.isEnabled = true
     commandCenter.likeCommand.addTarget { [weak self] event in
+      print("📱 iOS: Like command received from remote control")
       self?.handleRemoteCommand(command: "setRating", data: ["rating": true, "type": "heart"])
       return .success
     }
     
     commandCenter.dislikeCommand.isEnabled = true
     commandCenter.dislikeCommand.addTarget { [weak self] event in
+      print("📱 iOS: Dislike command received from remote control")
       self?.handleRemoteCommand(command: "setRating", data: ["rating": false, "type": "heart"])
       return .success
     }
@@ -476,18 +544,25 @@ public class ExpoMediaControlModule: Module {
    * Processes remote control commands and sends events to JavaScript
    */
   private func handleRemoteCommand(command: String, data: [String: Any]?) {
-    let event: [String: Any] = [
+    print("📱 iOS: handleRemoteCommand called with command: \(command)")
+    
+    let eventData: [String: Any] = [
       "command": command,
-      "data": data as Any,
+      "data": data ?? [:],
       "timestamp": Date().timeIntervalSince1970 * 1000 // Convert to milliseconds
     ]
     
-    // Send event to JavaScript
-    sendEvent("mediaControlEvent", event)
+    print("📱 iOS: Preparing to send event: \(eventData)")
     
-    print("📱 Remote command handled: \(command)")
-  }
+    // TODO: Fix event sending - currently disabled to prevent crashes
+      sendEvent("mediaControlEvent", eventData)
 
+    // Need to implement proper Expo modules event emission
+    print("📱 iOS: Event would be sent: \(eventData)")
+    
+    print("📱 iOS: Event handling completed")
+  }
+  
   // =============================================
   // UTILITY METHODS
   // Helper methods for configuration and artwork handling

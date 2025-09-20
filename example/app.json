@@ -28,7 +28,16 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "plugins": [["../app.plugin.js", { "apiKey": "custom_secret_api" }]]
-
+    "plugins": [
+      [
+        "../app.plugin.js",
+        {
+          "enableBackgroundAudio": true,
+          "audioSessionCategory": "playback",
+          "skipInterval": 15
+        }
+      ],
+      "expo-audio"
+    ]
   }
 }

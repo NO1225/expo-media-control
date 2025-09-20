@@ -1,4 +1,4 @@
-import { NativeModule, requireNativeModule } from 'expo';
+import { EventEmitter, NativeModule, requireNativeModule } from 'expo';
 
 // =============================================
 // TYPE DEFINITIONS
@@ -200,10 +200,10 @@ declare class ExpoMediaControlNativeModule extends NativeModule {
 // Create the native module instance
 const nativeModule = requireNativeModule<ExpoMediaControlNativeModule>('ExpoMediaControl');
 
+console.log('📱 JS: Native module loaded:', nativeModule);
+
 /**
- * Map to store event listeners
- * This allows us to manage subscriptions manually since Expo's EventEmitter
- * has strict type checking that may not work with our custom events
+ * Map to store event listeners for manual management
  */
 const eventListeners: {
   mediaControl: MediaControlEventListener[];
@@ -232,6 +232,11 @@ class ExtendedExpoMediaControlModule {
   enableMediaControls = async (options?: MediaControlOptions): Promise<void> => {
     try {
       await nativeModule.enableMediaControls(options);
+
+      // Add native event listeners
+      (nativeModule as any).addListener('mediaControlEvent', this._dispatchMediaControlEvent);
+      (nativeModule as any).addListener('audioInterruptionEvent', this._dispatchAudioInterruptionEvent);
+      (nativeModule as any).addListener('volumeChangeEvent', this._dispatchVolumeChangeEvent);
     } catch (error) {
       console.error('Failed to enable media controls:', error);
       throw error;
@@ -245,6 +250,11 @@ class ExtendedExpoMediaControlModule {
   disableMediaControls = async (): Promise<void> => {
     try {
       await nativeModule.disableMediaControls();
+
+      // Remove all native event listeners
+      (nativeModule as any).removeAllListeners('mediaControlEvent');
+      (nativeModule as any).removeAllListeners('audioInterruptionEvent');
+      (nativeModule as any).removeAllListeners('volumeChangeEvent');
     } catch (error) {
       console.error('Failed to disable media controls:', error);
       throw error;
@@ -328,7 +338,7 @@ class ExtendedExpoMediaControlModule {
       return PlaybackState.NONE;
     }
   };
-
+  
   // =============================================
   // SIMPLIFIED EVENT HANDLING METHODS
   // Use manual listener management for better control
@@ -341,6 +351,7 @@ class ExtendedExpoMediaControlModule {
    * @returns Function to remove the listener
    */
   addListener = (listener: MediaControlEventListener): (() => void) => {
+    console.log('📱 JS: Adding media control event listener');
     eventListeners.mediaControl.push(listener);
     
     // Return removal function
@@ -409,6 +420,8 @@ class ExtendedExpoMediaControlModule {
    * This will be called by the native modules when control events occur
    */
   _dispatchMediaControlEvent = (event: MediaControlEvent): void => {
+            console.log('📱 JS: Dispatching media control event:', event);
+
     eventListeners.mediaControl.forEach(listener => {
       try {
         listener(event);
