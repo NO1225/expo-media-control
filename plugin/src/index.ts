@@ -81,6 +81,7 @@ const withAndroidMediaControl: ConfigPlugin<MediaControlOptions> = (config, opti
     // Add required permissions
     const permissions = [
       'android.permission.FOREGROUND_SERVICE',
+      'android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK', // Required for Android 14+ (API 34+)
       'android.permission.WAKE_LOCK',
       'android.permission.ACCESS_NETWORK_STATE',
     ];
