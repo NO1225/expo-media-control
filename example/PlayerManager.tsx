@@ -1,11 +1,33 @@
 import { AudioPlayer, createAudioPlayer, setAudioModeAsync } from "expo-audio";
 
-const UPDATE_INTERVAL = 1000;
+import {
+    MediaControl,
+    PlaybackState,
+    Command,
+    MediaControlEvent,
+    AudioInterruption,
+    VolumeChange,
+} from 'expo-media-control';
+import { Platform } from "react-native";
 
-class Audio {
+const UPDATE_INTERVAL = 500;
+
+export class Audio {
     id: string;
     title: string;
+    album?: string;
+    albumTrackCount?: number;
+    trackNumber?: number;
     url: string;
+    duration?: number;
+    onDurationChanged?: (id: string, duration: number) => void;
+    private setDuration(duration: number) {
+        // if not changed, ignore
+        if (this.duration === duration)
+            return;
+        this.duration = duration;
+        this.onDurationChanged?.(this.id, duration);
+    }
 
     onIsPlayingChanged?: (id: string, isPlaying: boolean) => void;
     onIsLoadingChanged?: (isLoading: boolean) => void;
@@ -13,6 +35,7 @@ class Audio {
     onProgressUpdated?: (id: string, currentTime: number, duration: number) => void;
     private setCurrentProgress(currentTime: number, duration: number) {
         this.onProgressUpdated?.(this.id, currentTime, duration);
+        this.setDuration(duration);
     }
 
     onItemCompleted?: (id: string) => void;
@@ -23,13 +46,15 @@ class Audio {
     next: Audio | null;
     prev: Audio | null;
 
-    constructor(id: string, url: string, title: string) {
+    constructor(id: string, url: string, title: string, album?: string, albumTrackCount?: number, trackNumber?: number) {
         this.id = id;
         this.url = url;
         this.title = title;
+        this.album = album;
+        this.albumTrackCount = albumTrackCount;
+        this.trackNumber = trackNumber;
         this.player = createAudioPlayer(url, {
-            updateInterval: UPDATE_INTERVAL,
-
+            updateInterval:UPDATE_INTERVAL
         });
         this.next = null;
         this.prev = null;
@@ -67,7 +92,12 @@ class Audio {
     }
 
     setRate(rate: number) {
-        this.player.setPlaybackRate(rate);
+        if (Platform.OS === "android") {
+            this.player.shouldCorrectPitch = true;
+            this.player.setPlaybackRate(rate);
+        } else {
+            this.player.setPlaybackRate(rate, "high");
+        }
         console.log(`Set playback rate: ${rate}`);
     }
 
@@ -82,9 +112,7 @@ class Audio {
     }
 
     pause() {
-        console.log('🎵 Audio.pause() called for:', this.id);
         this.player.pause();
-        console.log('🎵 Audio.pause() completed for:', this.id, 'playing:', this.player.playing);
     }
 
     stop() {
@@ -122,6 +150,31 @@ export class PlayerManager {
 
         this.activeAudio = audio;
         this.onItemChanged?.(audio);
+
+        // Clean metadata before sending to native module
+        const metadata: any = {
+            title: audio.title || 'Unknown Title',
+            artist: audio.album || 'Unknown Artist',
+            album: audio.album || 'Unknown Album',
+        };
+
+        // Only add numeric values if they're valid
+        const duration = audio.duration ?? audio?.player?.duration;
+        if (typeof duration === 'number' && duration > 0) {
+            metadata.duration = duration;
+        }
+
+        if (typeof audio.albumTrackCount === 'number' && audio.albumTrackCount > 0) {
+            metadata.albumTrackCount = audio.albumTrackCount;
+        }
+
+        if (typeof audio.trackNumber === 'number' && audio.trackNumber > 0) {
+            metadata.trackNumber = audio.trackNumber;
+        }
+
+        MediaControl.updateMetadata(metadata).catch(error => {
+            console.error('Failed to update MediaControl metadata from setActiveAudio:', error);
+        })
     }
 
     startPlayingAtId(id: string) {
@@ -156,13 +209,14 @@ export class PlayerManager {
     private setCurrentProgress(currentTime: number, duration: number) {
         if (this.activeAudio) {
             this.onProgressUpdated?.(this.activeAudio.id, currentTime, duration);
+
         }
     }
 
     onItemCompleted?: (id: string) => void;
     onItemChanged?: (newItem: Audio) => void;
 
-    init() {
+    async init() {
         console.log("Initializing PlayerManager");
         setAudioModeAsync({
             interruptionMode: "doNotMix",
@@ -171,16 +225,46 @@ export class PlayerManager {
             shouldRouteThroughEarpiece: true,
             playsInSilentMode: true
         });
+
+        await MediaControl.enableMediaControls({
+            capabilities: [
+                Command.PLAY,
+                Command.PAUSE,
+                Command.STOP,
+                Command.NEXT_TRACK,
+                Command.PREVIOUS_TRACK,
+                Command.SKIP_FORWARD,
+                Command.SKIP_BACKWARD,
+                Command.SEEK,
+            ],
+            notification: {
+                icon: 'ic_music_note',
+                color: '#2196F3',
+                showWhenClosed: true,
+                skipInterval: 15,
+            },
+            ios: {
+                skipInterval: 15,
+            },
+            android: {
+                requestAudioFocus: true,
+            },
+        });
+
+        this._registerCommands();
     }
 
     loadPlayList(playList: {
         id: string;
         title: string;
         url: string;
-    }[], autoPlay?: boolean, startWithId?: string) {
+        album?: string;
+        albumTrackCount?: number;
+        trackNumber?: number;
+    }[], autoStart: boolean, startWithId?: string) {
         this.clearAudio();
 
-        this.audios = playList.map(item => new Audio(item.id, item.url, item.title));
+        this.audios = playList.map(item => new Audio(item.id, item.url, item.title, item.album, item.albumTrackCount, item.trackNumber));
 
         for (let i = 0; i < this.audios.length; i++) {
             const audioItem = this.audios[i];
@@ -194,6 +278,10 @@ export class PlayerManager {
                 if (this.activeAudio !== audioItem)
                     return;
                 this.setIsPlaying?.(isPlaying);
+
+                MediaControl.updatePlaybackState(isPlaying ? PlaybackState.PLAYING : PlaybackState.PAUSED, audioItem.player.currentTime).catch(error => {
+                    console.error('Failed to update MediaControl playback state from isPlaying change:', error);
+                });
             };
 
             audioItem.onIsLoadingChanged = (isLoading) => {
@@ -207,6 +295,45 @@ export class PlayerManager {
                 if (this.activeAudio !== audioItem)
                     return;
                 this.setCurrentProgress?.(currentTime, duration);
+
+                MediaControl.updatePlaybackState(this.isPlaying ? PlaybackState.PLAYING : PlaybackState.PAUSED, currentTime).catch(error => {
+                    console.error('Failed to update MediaControl playback state from progress update:', error);
+                });
+            };
+
+            audioItem.onDurationChanged = (id, duration) => {
+                if (this.activeAudio !== audioItem)
+                    return;
+
+                console.log({
+                    title: audioItem.title,
+                    duration: duration,
+                    album: audioItem.album,
+                    albumTrackCount: audioItem.albumTrackCount,
+                    trackNumber: audioItem.trackNumber,
+                })
+
+                if (!duration || duration <= 0 || typeof duration !== 'number') return;
+                
+                // Clean metadata before sending to native module
+                const metadata: any = {
+                    title: audioItem.title || 'Unknown Title',
+                    duration: duration,
+                    artist: audioItem.album || 'Unknown Artist',
+                    album: audioItem.album || 'Unknown Album',
+                };
+
+                if (typeof audioItem.albumTrackCount === 'number' && audioItem.albumTrackCount > 0) {
+                    metadata.albumTrackCount = audioItem.albumTrackCount;
+                }
+
+                if (typeof audioItem.trackNumber === 'number' && audioItem.trackNumber > 0) {
+                    metadata.trackNumber = audioItem.trackNumber;
+                }
+
+                MediaControl.updateMetadata(metadata).catch(error => {
+                    console.error('Failed to update MediaControl metadata from duration update:', error);
+                });
             };
 
             audioItem.onItemCompleted = (id) => {
@@ -237,11 +364,12 @@ export class PlayerManager {
             this.setActiveAudio(this.audios[0]);
         }
 
-        if (autoPlay)
+        if (autoStart) {
             this.play();
+        }
     }
 
-    clearAudio() {
+    async clearAudio() {
         for (const audio of this.audios) {
             audio.destroy();
         }
@@ -251,6 +379,11 @@ export class PlayerManager {
         console.log('Cleared audio:', this)
     }
 
+    destroy() {
+        this._unregisterCommands();
+        MediaControl.disableMediaControls();
+    }
+
 
     setRate(rate: number) {
         this.rate = rate;
@@ -258,18 +391,17 @@ export class PlayerManager {
     }
 
     play() {
-        console.log('🎵 PlayerManager.play() called, activeAudio:', this.activeAudio?.id);
         this.activeAudio?.play(this.rate);
     }
 
     pause() {
-        console.log('🎵 PlayerManager.pause() called, activeAudio:', this.activeAudio?.id);
-        if (this.activeAudio) {
-            this.activeAudio.pause();
-            console.log('🎵 PlayerManager.pause() completed, activeAudio playing state:', this.activeAudio.player.playing);
-        } else {
-            console.log('⚠️ PlayerManager.pause() - No active audio to pause');
-        }
+        this.activeAudio?.pause();
+    }
+
+    stop() {
+        this.activeAudio?.stop();
+        // this.setIsPlaying(false);
+        // this.setCurrentProgress(0, this.getDuration());
     }
 
     seekTo(ratio: number) {
@@ -288,22 +420,128 @@ export class PlayerManager {
         }
     }
 
+    getCurrentTime(): number {
+        return this.activeAudio?.player?.currentTime || 0;
+    }
+
+    getDuration(): number {
+        return this.activeAudio?.player?.duration || 0;
+    }
+
     private changeItem(newItem: Audio) {
         this.setActiveAudio(newItem);
         this.activeAudio?.play(this.rate, true);
     }
 
-    // Public methods to get current playback information
-    getCurrentTime(): number {
-        return this.activeAudio?.player.currentTime || 0;
-    }
+    private _removeListenersListener: (() => void) | null = null;
+    private _removeInterruptionListener: (() => void) | null = null;
+    private _removeVolumeListener: (() => void) | null = null;
+    private _registerCommands() {
+        // Set up media control event listener
+        console.log('📱 JS: Setting up media control event listener');
+        this._removeListenersListener?.();
+        this._removeListenersListener = MediaControl.addListener((event: MediaControlEvent) => {
+            console.log('📱 JS: Media Control Event received:', event);
+            console.log('📱 JS: Event command:', event.command);
+            console.log('📱 JS: Event timestamp:', event.timestamp);
 
-    getDuration(): number {
-        return this.activeAudio?.player.duration || 1;
-    }
+            // Handle different commands - delegate to PlayerManager with immediate responses
+            switch (event.command) {
+                case Command.PLAY:
+                    console.log('🎵 Remote PLAY command received');
+                    // Direct response for remote control - don't wait for React state updates
+                    this.play();
+                    // // Update MediaControl state immediately
+                    // setTimeout(() => {
+                    //     MediaControl.updatePlaybackState(PlaybackState.PLAYING, playerManager.getCurrentTime()).catch(error => {
+                    //         console.error('Failed to update MediaControl playback state from remote play:', error);
+                    //     });
+                    // }, 50);
+                    break;
+                case Command.PAUSE:
+                    console.log('🎵 Remote PAUSE command received');
+                    // Direct response for remote control - don't wait for React state updates
+                    this.pause();
+                    // Update MediaControl state immediately
+                    // setTimeout(() => {
+                    //     MediaControl.updatePlaybackState(PlaybackState.PAUSED, playerManager.getCurrentTime()).catch(error => {
+                    //         console.error('Failed to update MediaControl playback state from remote pause:', error);
+                    //     });
+                    // }, 50);
+                    break;
+                case Command.STOP:
+                    console.log('🎵 Remote STOP command received');
+                    this.stop();
 
-    getCurrentAudioId(): string | null {
-        return this.activeAudio?.id || null;
+                    // handleStop();
+                    break;
+                case Command.NEXT_TRACK:
+                    console.log('🎵 Remote NEXT_TRACK command received');
+                    this.skipNext();
+                    break;
+                case Command.PREVIOUS_TRACK:
+                    console.log('🎵 Remote PREVIOUS_TRACK command received');
+                    this.skipPrev();
+                    break;
+                case Command.SKIP_FORWARD:
+                    // Skip forward by interval (convert seconds to ratio)
+                    const currentTime = this.activeAudio?.player?.currentTime || 0;
+                    const duration = this.activeAudio?.player?.duration || 1;
+                    const interval = event.data?.interval || 15;
+                    const newPosition = Math.min(currentTime + interval, duration);
+                    this.seekTo(newPosition / duration);
+                    break;
+                case Command.SKIP_BACKWARD:
+                    // Skip backward by interval (convert seconds to ratio)
+                    const currentTimeBack = this.activeAudio?.player?.currentTime || 0;
+                    const durationBack = this.activeAudio?.player?.duration || 1;
+                    const intervalBack = event.data?.interval || 15;
+                    const newPositionBack = Math.max(currentTimeBack - intervalBack, 0);
+                    this.seekTo(newPositionBack / durationBack);
+                    break;
+                case Command.SEEK:
+                    if (event.data?.position !== undefined) {
+                        // Convert absolute position to ratio
+                        const seekDuration = this.activeAudio?.player?.duration || 1;
+                        this.seekTo(event.data.position / seekDuration);
+                    }
+                    break;
+                // case Command.SET_RATING:
+                //     handleRating(event.data);
+                //     break;
+            }
+        });
+
+        this._removeInterruptionListener?.();
+        // Set up audio interruption listener
+        this._removeInterruptionListener = MediaControl.addAudioInterruptionListener((interruption: AudioInterruption) => {
+            console.log('🔊 Audio Interruption:', interruption);
+            if (interruption.type === 'begin') {
+                this.pause();
+            } else if (interruption.type === 'end' && interruption.shouldResume) {
+                // Resume playback if appropriate
+                this.play();
+            }
+        });
+
+        // Set up volume change listener
+        this._removeVolumeListener = MediaControl.addVolumeChangeListener((change: VolumeChange) => {
+            console.log('🔊 Volume Change:', change);
+            // setVolume(change.volume);
+            // setLastEvent(`Volume: ${(change.volume * 100).toFixed(0)}% at ${new Date().toLocaleTimeString()}`);
+        });
+
+    }
+    private _unregisterCommands() {
+        console.log('📱 JS: Removing media control event listener');
+        this._removeListenersListener?.();
+        this._removeListenersListener = null;
+
+        this._removeInterruptionListener?.();
+        this._removeInterruptionListener = null;
+
+        this._removeVolumeListener?.();
+        this._removeVolumeListener = null;
     }
 
 }

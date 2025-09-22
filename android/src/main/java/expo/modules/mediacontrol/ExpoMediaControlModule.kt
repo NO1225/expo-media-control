@@ -142,7 +142,12 @@ class ExpoMediaControlModule : Module() {
     
     @JvmStatic
     fun handleMediaEvent(command: String, data: Map<String, Any>?) {
-      moduleInstance?.handleMediaCommand(command, data)
+      try {
+        moduleInstance?.handleMediaCommand(command, data)
+      } catch (e: Exception) {
+        println("❌ Error handling media event: ${e.message}")
+        // Don't crash if there's an issue with event handling
+      }
     }
   }
 
@@ -156,13 +161,21 @@ class ExpoMediaControlModule : Module() {
 
     // Module lifecycle callbacks
     OnCreate {
-      moduleInstance = this@ExpoMediaControlModule
+      try {
+        moduleInstance = this@ExpoMediaControlModule
+        println("🤖 ExpoMediaControl module created")
+      } catch (e: Exception) {
+        println("❌ Error during module creation: ${e.message}")
+      }
     }
     
     OnDestroy {
       try {
-        disableMediaControls()
+        if (isControlsEnabled) {
+          disableMediaControls()
+        }
         moduleInstance = null
+        println("🤖 ExpoMediaControl module destroyed")
       } catch (e: Exception) {
         println("❌ Error during module cleanup: ${e.message}")
       }
@@ -415,13 +428,44 @@ class ExpoMediaControlModule : Module() {
       // Store current metadata with thread-safe access
       synchronized(currentMetadata) {
         currentMetadata.clear()
-        currentMetadata.putAll(metadata)
+        
+        // Clean and validate metadata before storing
+        val cleanMetadata = mutableMapOf<String, Any>()
+        metadata.forEach { (key, value) ->
+          when {
+            value is String -> cleanMetadata[key] = value
+            value is Number -> cleanMetadata[key] = value
+            value is Boolean -> cleanMetadata[key] = value
+            value is Map<*, *> -> {
+              // Handle nested maps (like artwork)
+              val nestedMap = mutableMapOf<String, Any>()
+              value.forEach { (nestedKey, nestedValue) ->
+                if (nestedKey is String && nestedValue != null) {
+                  when (nestedValue) {
+                    is String -> nestedMap[nestedKey] = nestedValue
+                    is Number -> nestedMap[nestedKey] = nestedValue
+                    is Boolean -> nestedMap[nestedKey] = nestedValue
+                  }
+                }
+              }
+              if (nestedMap.isNotEmpty()) {
+                cleanMetadata[key] = nestedMap
+              }
+            }
+            else -> {
+              // Skip invalid types but log them
+              println("⚠️ Skipping metadata field '$key' with unsupported type: ${value?.javaClass?.simpleName}")
+            }
+          }
+        }
+        
+        currentMetadata.putAll(cleanMetadata)
       }
       
       // Delegate to service if bound
       if (isServiceBound) {
-        mediaService?.updateMetadata(metadata)
-        println("🤖 Metadata updated via service: ${metadata["title"]} - ${metadata["artist"]}")
+        mediaService?.updateMetadata(currentMetadata.toMap())
+        println("🤖 Metadata updated via service: ${currentMetadata["title"]} - ${currentMetadata["artist"]}")
       } else {
         println("⚠️ Service not bound, cannot update metadata")
       }

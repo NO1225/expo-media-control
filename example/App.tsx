@@ -11,16 +11,17 @@ import {
   Switch,
   Image,
 } from 'react-native';
-import {
-  MediaControl,
-  PlaybackState,
-  Command,
-  RatingType,
-  MediaControlEvent,
-  AudioInterruption,
-  VolumeChange,
-} from 'expo-media-control';
-import { PlayerManager } from './PlayerManager';
+// import {
+//   MediaControl,
+//   PlaybackState,
+//   Command,
+//   RatingType,
+//   MediaControlEvent,
+//   AudioInterruption,
+//   VolumeChange,
+// } from 'expo-media-control';
+import { PlayerManager, Audio } from './PlayerManager';
+  const playerManager = PlayerManager.getInstance();
 
 /**
  * Comprehensive Example App for Expo Media Control
@@ -38,7 +39,7 @@ export default function App() {
   // STATE MANAGEMENT
   // =============================================
   
-  const [isEnabled, setIsEnabled] = useState(false);
+  const [isEnabled, setIsEnabled] = useState(true);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentPosition, setCurrentPosition] = useState(0);
   const [volume, setVolume] = useState(1.0);
@@ -58,16 +59,14 @@ export default function App() {
       title: 'Test Artwork Track',
       artist: 'RadDy Questions',
       album: 'Logo Test Album',
-      duration: 15, // 0:15
       artwork: 'https://via.placeholder.com/300x300/4CAF50/FFFFFF?text=Nature',
-      url: 'https://download.samplelib.com/mp3/sample-15s.mp3'
+      url: 'https://dl.espressif.com/dl/audio/ff-16b-2c-44100hz.mp3'
     },
     {
       id: '2',
       title: 'Nature Sounds',
       artist: 'SoundJay',
       album: 'Free Audio Samples',
-      duration: 15, // 0:15
       artwork: 'https://via.placeholder.com/300x300/4CAF50/FFFFFF?text=Nature',
       url: 'https://download.samplelib.com/mp3/sample-15s.mp3'
     },
@@ -76,7 +75,6 @@ export default function App() {
       title: 'Piano Sample',
       artist: 'Demo Artist',
       album: 'Demo Album',
-      duration: 30, // 0:30
       artwork: 'https://via.placeholder.com/300x300/2196F3/FFFFFF?text=Piano',
       url: 'https://download.samplelib.com/mp3/sample-15s.mp3'
     }
@@ -87,7 +85,6 @@ export default function App() {
   // PLAYER MANAGER SETUP
   // =============================================
   
-  const playerManager = PlayerManager.getInstance();
 
   // =============================================
   // EVENT HANDLERS SETUP
@@ -101,16 +98,6 @@ export default function App() {
     playerManager.onIsPlayingChanged = (id: string, isPlaying: boolean) => {
       console.log('🎵 PlayerManager playing state changed:', isPlaying);
       setIsPlaying(isPlaying);
-      // Update MediaControl playback state (but avoid circular updates from remote control events)
-      const currentTime = playerManager.getCurrentTime();
-      const state = isPlaying ? PlaybackState.PLAYING : PlaybackState.PAUSED;
-      
-      // Add a small delay to ensure the player state has settled
-      setTimeout(() => {
-        MediaControl.updatePlaybackState(state, currentTime).catch(error => {
-          console.error('Failed to update MediaControl playback state:', error);
-        });
-      }, 100);
     };
     
     playerManager.onIsLoadingChanged = (isLoading: boolean) => {
@@ -121,15 +108,9 @@ export default function App() {
     playerManager.onProgressUpdated = (id: string, currentTime: number, duration: number) => {
       setCurrentPosition(currentTime);
       setTrackDuration(duration);
-      // Update MediaControl with current position if playing
-      if (isPlaying) {
-        MediaControl.updatePlaybackState(PlaybackState.PLAYING, currentTime).catch(error => {
-          console.error('Failed to update MediaControl position:', error);
-        });
-      }
     };
     
-    playerManager.onItemChanged = (newItem: any) => {
+    playerManager.onItemChanged = (newItem: Audio) => {
       // Find the index of the new item and update UI
       const newIndex = sampleTracks.findIndex(track => track.id === newItem.id);
       if (newIndex >= 0) {
@@ -138,11 +119,9 @@ export default function App() {
         setTrackTitle(track.title);
         setTrackArtist(track.artist);
         setTrackAlbum(track.album);
-        setTrackDuration(track.duration);
         setCurrentPosition(0);
         
         // Update MediaControl metadata when track changes
-        updateMetadata(track);
       }
     };
     
@@ -154,118 +133,13 @@ export default function App() {
     // Load the playlist
     playerManager.loadPlayList(sampleTracks, false, sampleTracks[0].id);
 
-    enableMediaControls();
     
     return () => {
       playerManager.clearAudio();
     };
   }, []);
   
-  useEffect(() => {
-    // Set up media control event listener
-    console.log('📱 JS: Setting up media control event listener');
-    const removeMediaListener = MediaControl.addListener((event: MediaControlEvent) => {
-      console.log('📱 JS: Media Control Event received:', event);
-      console.log('📱 JS: Event command:', event.command);
-      console.log('📱 JS: Event timestamp:', event.timestamp);
-      setLastEvent(`Media: ${event.command} at ${new Date(event.timestamp).toLocaleTimeString()}`);
-      
-      // Handle different commands - delegate to PlayerManager with immediate responses
-      switch (event.command) {
-        case Command.PLAY:
-          console.log('🎵 Remote PLAY command received');
-          // Direct response for remote control - don't wait for React state updates
-          playerManager.play();
-          // Update MediaControl state immediately
-          setTimeout(() => {
-            MediaControl.updatePlaybackState(PlaybackState.PLAYING, playerManager.getCurrentTime()).catch(error => {
-              console.error('Failed to update MediaControl playback state from remote play:', error);
-            });
-          }, 50);
-          break;
-        case Command.PAUSE:
-          console.log('🎵 Remote PAUSE command received');
-          // Direct response for remote control - don't wait for React state updates
-          playerManager.pause();
-          // Update MediaControl state immediately
-          setTimeout(() => {
-            MediaControl.updatePlaybackState(PlaybackState.PAUSED, playerManager.getCurrentTime()).catch(error => {
-              console.error('Failed to update MediaControl playback state from remote pause:', error);
-            });
-          }, 50);
-          break;
-        case Command.STOP:
-          console.log('🎵 Remote STOP command received');
-          handleStop();
-          break;
-        case Command.NEXT_TRACK:
-          console.log('🎵 Remote NEXT_TRACK command received');
-          playerManager.skipNext();
-          break;
-        case Command.PREVIOUS_TRACK:
-          console.log('🎵 Remote PREVIOUS_TRACK command received');
-          playerManager.skipPrev();
-          break;
-        case Command.SKIP_FORWARD:
-          // Skip forward by interval (convert seconds to ratio)
-          const currentTime = playerManager.getCurrentTime();
-          const duration = playerManager.getDuration();
-          const interval = event.data?.interval || 15;
-          const newPosition = Math.min(currentTime + interval, duration);
-          playerManager.seekTo(newPosition / duration);
-          break;
-        case Command.SKIP_BACKWARD:
-          // Skip backward by interval (convert seconds to ratio)
-          const currentTimeBack = playerManager.getCurrentTime();
-          const durationBack = playerManager.getDuration();
-          const intervalBack = event.data?.interval || 15;
-          const newPositionBack = Math.max(currentTimeBack - intervalBack, 0);
-          playerManager.seekTo(newPositionBack / durationBack);
-          break;
-        case Command.SEEK:
-          if (event.data?.position !== undefined) {
-            // Convert absolute position to ratio
-            const seekDuration = playerManager.getDuration();
-            playerManager.seekTo(event.data.position / seekDuration);
-          }
-          break;
-        case Command.SET_RATING:
-          handleRating(event.data);
-          break;
-      }
-    });
-
-    // Set up audio interruption listener
-    const removeInterruptionListener = MediaControl.addAudioInterruptionListener((interruption: AudioInterruption) => {
-      console.log('🔊 Audio Interruption:', interruption);
-      setLastEvent(`Interruption: ${interruption.type} at ${new Date().toLocaleTimeString()}`);
-      
-      if (interruption.type === 'begin') {
-        // Pause playback on interruption
-        if (isPlaying) {
-          handlePause();
-        }
-      } else if (interruption.type === 'end' && interruption.shouldResume) {
-        // Resume playback if appropriate
-        handlePlay();
-      }
-    });
-
-    // Set up volume change listener
-    const removeVolumeListener = MediaControl.addVolumeChangeListener((change: VolumeChange) => {
-      console.log('🔊 Volume Change:', change);
-      setVolume(change.volume);
-      setLastEvent(`Volume: ${(change.volume * 100).toFixed(0)}% at ${new Date().toLocaleTimeString()}`);
-    });
-
-    // Cleanup listeners on unmount
-    return () => {
-      removeMediaListener();
-      removeInterruptionListener();
-      removeVolumeListener();
-    };
-  }, [isPlaying]);
-
+  
   // =============================================
   // PLAYBACK CONTROL HANDLERS
   // =============================================
@@ -273,7 +147,7 @@ export default function App() {
   const handlePlay = async () => {
     try {
       playerManager.play();
-      await MediaControl.updatePlaybackState(PlaybackState.PLAYING, playerManager.getCurrentTime());
+
       console.log('▶️ Playing');
     } catch (error) {
       console.error('Failed to play:', error);
@@ -284,7 +158,6 @@ export default function App() {
   const handlePause = async () => {
     try {
       playerManager.pause();
-      await MediaControl.updatePlaybackState(PlaybackState.PAUSED, playerManager.getCurrentTime());
       console.log('⏸️ Paused');
     } catch (error) {
       console.error('Failed to pause:', error);
@@ -295,10 +168,8 @@ export default function App() {
   const handleStop = async () => {
     try {
       // PlayerManager doesn't have a direct stop method, so we'll pause and seek to start
-      playerManager.pause();
-      playerManager.seekTo(0);
+      playerManager.stop();
       setCurrentPosition(0);
-      await MediaControl.updatePlaybackState(PlaybackState.STOPPED, 0);
       console.log('⏹️ Stopped');
     } catch (error) {
       console.error('Failed to stop:', error);
@@ -319,9 +190,7 @@ export default function App() {
     const duration = playerManager.getDuration();
     const newPosition = Math.min(currentTime + interval, duration);
     playerManager.seekTo(newPosition / duration);
-    if (isPlaying) {
-      MediaControl.updatePlaybackState(PlaybackState.PLAYING, newPosition);
-    }
+
   };
 
   const handleSkipBackward = (interval: number) => {
@@ -329,9 +198,7 @@ export default function App() {
     const duration = playerManager.getDuration();
     const newPosition = Math.max(currentTime - interval, 0);
     playerManager.seekTo(newPosition / duration);
-    if (isPlaying) {
-      MediaControl.updatePlaybackState(PlaybackState.PLAYING, newPosition);
-    }
+
   };
 
   const handleSeek = (position: number) => {
@@ -339,9 +206,7 @@ export default function App() {
     const newPosition = Math.max(0, Math.min(position, duration));
     playerManager.seekTo(newPosition / duration);
     setCurrentPosition(newPosition);
-    if (isPlaying) {
-      MediaControl.updatePlaybackState(PlaybackState.PLAYING, newPosition);
-    }
+
   };
 
   const handleRating = (data: any) => {
@@ -355,125 +220,11 @@ export default function App() {
       setTrackTitle(track.title);
       setTrackArtist(track.artist);
       setTrackAlbum(track.album);
-      setTrackDuration(track.duration);
       setCurrentPosition(0);
       
       // Tell PlayerManager to start playing this track
       playerManager.startPlayingAtId(track.id);
       
-      // Update metadata immediately
-      updateMetadata(track);
-    }
-  };
-
-  // =============================================
-  // MEDIA CONTROL FUNCTIONS
-  // =============================================
-  
-  const enableMediaControls = async () => {
-    try {
-      await MediaControl.enableMediaControls({
-        capabilities: [
-          Command.PLAY,
-          Command.PAUSE,
-          Command.STOP,
-          Command.NEXT_TRACK,
-          Command.PREVIOUS_TRACK,
-          Command.SKIP_FORWARD,
-          Command.SKIP_BACKWARD,
-          Command.SEEK,
-          Command.SET_RATING,
-        ],
-        notification: {
-          icon: 'ic_music_note',
-          color: '#2196F3',
-          showWhenClosed: true,
-          skipInterval: 15,
-        },
-        ios: {
-          skipInterval: 15,
-        },
-        android: {
-          requestAudioFocus: true,
-        },
-      });
-      
-      setIsEnabled(true);
-      
-      // Set initial metadata
-      await updateCurrentMetadata();
-      
-      console.log('✅ Media controls enabled');
-      Alert.alert('Success', 'Media controls enabled successfully!');
-    } catch (error) {
-      console.error('Failed to enable media controls:', error);
-      Alert.alert('Error', 'Failed to enable media controls');
-    }
-  };
-
-  const disableMediaControls = async () => {
-    try {
-      await MediaControl.disableMediaControls();
-      setIsEnabled(false);
-      setIsPlaying(false);
-      setCurrentPosition(0);
-      console.log('❌ Media controls disabled');
-      Alert.alert('Success', 'Media controls disabled');
-    } catch (error) {
-      console.error('Failed to disable media controls:', error);
-      Alert.alert('Error', 'Failed to disable media controls');
-    }
-  };
-
-  const updateCurrentMetadata = async () => {
-    const track = sampleTracks[currentTrackIndex];
-    await updateMetadata(track);
-  };
-
-  const updateMetadata = async (track?: any) => {
-    try {
-      const metadata = {
-        title: track?.title || trackTitle,
-        artist: track?.artist || trackArtist,
-        album: track?.album || trackAlbum,
-        duration: track?.duration || trackDuration,
-        elapsedTime: currentPosition,
-        genre: 'Rock',
-        trackNumber: currentTrackIndex + 1,
-        albumTrackCount: sampleTracks.length,
-        date: '2024',
-        artwork: showArtwork && track?.artwork ? {
-          uri: track.artwork,
-          width: 300,
-          height: 300,
-        } : undefined,
-        rating: {
-          type: RatingType.FIVE_STARS,
-          value: 4.5,
-          maxValue: 5,
-        },
-        color: '#2196F3',
-        colorized: true,
-      };
-      
-      await MediaControl.updateMetadata(metadata);
-      console.log('🎵 Metadata updated');
-    } catch (error) {
-      console.error('Failed to update metadata:', error);
-      Alert.alert('Error', 'Failed to update metadata');
-    }
-  };
-
-  const resetControls = async () => {
-    try {
-      await MediaControl.resetControls();
-      setCurrentPosition(0);
-      setIsPlaying(false);
-      console.log('🔄 Controls reset');
-      Alert.alert('Success', 'Controls reset successfully');
-    } catch (error) {
-      console.error('Failed to reset controls:', error);
-      Alert.alert('Error', 'Failed to reset controls');
     }
   };
 
@@ -534,25 +285,7 @@ export default function App() {
           </View>
         </View>
 
-        {/* Control Buttons */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Media Controls</Text>
-          <View style={styles.buttonRow}>
-            <Button
-              title={isEnabled ? "Disable Controls" : "Enable Controls"}
-              onPress={isEnabled ? disableMediaControls : enableMediaControls}
-              color={isEnabled ? "#F44336" : "#4CAF50"}
-            />
-          </View>
-          <View style={styles.buttonRow}>
-            <Button
-              title="Reset Controls"
-              onPress={resetControls}
-              disabled={!isEnabled}
-              color="#FF9800"
-            />
-          </View>
-        </View>
+       
 
         {/* Playback Controls */}
         <View style={styles.section}>
@@ -582,9 +315,7 @@ export default function App() {
           <Text style={styles.trackTitle}>{getCurrentTrack().title}</Text>
           <Text style={styles.trackArtist}>{getCurrentTrack().artist}</Text>
           <Text style={styles.trackAlbum}>{getCurrentTrack().album}</Text>
-          <Text style={styles.trackInfo}>
-            Track {currentTrackIndex + 1} of {sampleTracks.length} • {formatTime(getCurrentTrack().duration)}
-          </Text>
+
         </View>
 
         {/* Track Selection */}
@@ -610,13 +341,12 @@ export default function App() {
               value={showArtwork}
               onValueChange={(value) => {
                 setShowArtwork(value);
-                if (isEnabled) updateCurrentMetadata();
               }}
             />
           </View>
         </View>
 
-        {/* Custom Metadata Input */}
+        {/* Custom Metadata Input 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Custom Track Info</Text>
           <TextInput
@@ -657,7 +387,7 @@ export default function App() {
             />
           </View>
         </View>
-
+*/}
       </ScrollView>
     </SafeAreaView>
   );

@@ -14,10 +14,12 @@ import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.os.Binder
 import android.os.Build
+import android.os.Bundle
 import android.os.IBinder
 import android.support.v4.media.MediaBrowserCompat
 import android.support.v4.media.MediaDescriptionCompat
 import android.support.v4.media.MediaMetadataCompat
+import android.support.v4.media.RatingCompat
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
 import androidx.core.app.NotificationCompat
@@ -97,9 +99,15 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
 
   override fun onCreate() {
     super.onCreate()
-    initializeMediaSession()
-    createNotificationChannel()
-    registerMediaActionReceiver()
+    try {
+      initializeMediaSession()
+      createNotificationChannel()
+      registerMediaActionReceiver()
+      println("🤖 MediaPlaybackService created successfully")
+    } catch (e: Exception) {
+      println("❌ Error creating MediaPlaybackService: ${e.message}")
+      e.printStackTrace()
+    }
   }
 
   override fun onDestroy() {
@@ -129,7 +137,7 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
   override fun onGetRoot(
     clientPackageName: String,
     clientUid: Int,
-    rootHints: androidx.os.Bundle?
+    rootHints: Bundle?
   ): BrowserRoot? {
     // Allow any client to browse (you might want to add authentication here)
     return BrowserRoot(MEDIA_ROOT_ID, null)
@@ -178,71 +186,107 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
 
   private val mediaSessionCallback = object : MediaSessionCompat.Callback() {
     override fun onPlay() {
-      if (requestAudioFocus()) {
-        currentPlaybackState = PlaybackStateCompat.STATE_PLAYING
-        updatePlaybackState()
-        sendEventToModule("play", null)
-        startForeground(NOTIFICATION_ID, createNotification())
+      try {
+        if (requestAudioFocus()) {
+          currentPlaybackState = PlaybackStateCompat.STATE_PLAYING
+          updatePlaybackState()
+          sendEventToModule("play", null)
+          startForeground(NOTIFICATION_ID, createNotification())
+        }
+      } catch (e: Exception) {
+        println("❌ Error in onPlay: ${e.message}")
       }
     }
 
     override fun onPause() {
-      currentPlaybackState = PlaybackStateCompat.STATE_PAUSED
-      updatePlaybackState()
-      sendEventToModule("pause", null)
-      updateNotification()
+      try {
+        currentPlaybackState = PlaybackStateCompat.STATE_PAUSED
+        updatePlaybackState()
+        sendEventToModule("pause", null)
+        updateNotification()
+      } catch (e: Exception) {
+        println("❌ Error in onPause: ${e.message}")
+      }
     }
 
     override fun onStop() {
-      currentPlaybackState = PlaybackStateCompat.STATE_STOPPED
-      currentPosition = 0L
-      updatePlaybackState()
-      sendEventToModule("stop", null)
-      stopForeground(false)
-      stopSelf()
+      try {
+        currentPlaybackState = PlaybackStateCompat.STATE_STOPPED
+        currentPosition = 0L
+        updatePlaybackState()
+        sendEventToModule("stop", null)
+        stopForeground(false)
+        stopSelf()
+      } catch (e: Exception) {
+        println("❌ Error in onStop: ${e.message}")
+      }
     }
 
     override fun onSkipToNext() {
-      sendEventToModule("nextTrack", null)
+      try {
+        sendEventToModule("nextTrack", null)
+      } catch (e: Exception) {
+        println("❌ Error in onSkipToNext: ${e.message}")
+      }
     }
 
     override fun onSkipToPrevious() {
-      sendEventToModule("previousTrack", null)
+      try {
+        sendEventToModule("previousTrack", null)
+      } catch (e: Exception) {
+        println("❌ Error in onSkipToPrevious: ${e.message}")
+      }
     }
 
     override fun onSeekTo(pos: Long) {
-      currentPosition = pos
-      updatePlaybackState()
-      val data = mapOf("position" to (pos / 1000.0))
-      sendEventToModule("seek", data)
+      try {
+        currentPosition = pos
+        updatePlaybackState()
+        val data = mapOf("position" to (pos / 1000.0))
+        sendEventToModule("seek", data)
+      } catch (e: Exception) {
+        println("❌ Error in onSeekTo: ${e.message}")
+      }
     }
 
     override fun onFastForward() {
-      val skipInterval = 15.0 // Default 15 seconds, could be configurable
-      val data = mapOf("interval" to skipInterval)
-      sendEventToModule("skipForward", data)
+      try {
+        val skipInterval = 15.0 // Default 15 seconds, could be configurable
+        val data = mapOf("interval" to skipInterval)
+        sendEventToModule("skipForward", data)
+      } catch (e: Exception) {
+        println("❌ Error in onFastForward: ${e.message}")
+      }
     }
 
     override fun onRewind() {
-      val skipInterval = 15.0 // Default 15 seconds, could be configurable
-      val data = mapOf("interval" to skipInterval)
-      sendEventToModule("skipBackward", data)
+      try {
+        val skipInterval = 15.0 // Default 15 seconds, could be configurable
+        val data = mapOf("interval" to skipInterval)
+        sendEventToModule("skipBackward", data)
+      } catch (e: Exception) {
+        println("❌ Error in onRewind: ${e.message}")
+      }
     }
 
-    override fun onSetRating(rating: androidx.support.v4.media.RatingCompat) {
-      val data = mapOf(
-        "rating" to rating.getRating(),
-        "type" to when (rating.ratingStyle) {
-          androidx.support.v4.media.RatingCompat.RATING_HEART -> "heart"
-          androidx.support.v4.media.RatingCompat.RATING_THUMB_UP_DOWN -> "thumbsUpDown"
-          androidx.support.v4.media.RatingCompat.RATING_3_STARS -> "threeStars"
-          androidx.support.v4.media.RatingCompat.RATING_4_STARS -> "fourStars"
-          androidx.support.v4.media.RatingCompat.RATING_5_STARS -> "fiveStars"
-          androidx.support.v4.media.RatingCompat.RATING_PERCENTAGE -> "percentage"
-          else -> "unknown"
-        }
-      )
-      sendEventToModule("setRating", data)
+    override fun onSetRating(rating: RatingCompat) {
+      try {
+        val data = mapOf(
+          "rating" to rating.getRating(),
+          "type" to when (rating.ratingStyle) {
+            RatingCompat.RATING_HEART -> "heart"
+            RatingCompat.RATING_THUMB_UP_DOWN -> "thumbsUpDown"
+            RatingCompat.RATING_3_STARS -> "threeStars"
+            RatingCompat.RATING_4_STARS -> "fourStars"
+            RatingCompat.RATING_5_STARS -> "fiveStars"
+            RatingCompat.RATING_PERCENTAGE -> "percentage"
+            else -> "unknown"
+          }
+        )
+        sendEventToModule("setRating", data)
+      } catch (e: Exception) {
+        println("❌ Error in onSetRating: ${e.message}")
+      }
     }
   }
 
@@ -540,7 +584,12 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
   private fun sendEventToModule(command: String, data: Map<String, Any>?) {
     // This will be called by the ExpoMediaControlModule to handle events
     // The module should register a listener to receive these events
-    ExpoMediaControlModule.handleMediaEvent(command, data)
+    try {
+      ExpoMediaControlModule.handleMediaEvent(command, data)
+    } catch (e: Exception) {
+      println("❌ Error sending event to module: ${e.message}")
+      // Don't crash if module isn't ready yet
+    }
   }
 
   // =============================================
