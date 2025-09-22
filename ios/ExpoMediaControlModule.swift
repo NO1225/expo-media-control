@@ -30,6 +30,9 @@ public class ExpoMediaControlModule: Module {
   /// Configuration options for the media controls
   private var controlOptions: [String: Any] = [:]
   
+  /// Whether rating controls are currently available
+  private var isRatingEnabled: Bool = false
+  
   /// Remote command center reference for managing remote controls
   private var remoteCommandCenter: MPRemoteCommandCenter {
     return MPRemoteCommandCenter.shared()
@@ -215,6 +218,7 @@ public class ExpoMediaControlModule: Module {
     currentPlaybackState = 0 // PlaybackState.NONE
     currentPosition = 0.0
     controlOptions.removeAll()
+    isRatingEnabled = false
     
     print("📱 Media controls disabled successfully")
   }
@@ -257,6 +261,52 @@ public class ExpoMediaControlModule: Module {
     if let albumTrackCount = metadata["albumTrackCount"] as? Int {
       nowPlayingInfo[MPMediaItemPropertyAlbumTrackCount] = albumTrackCount
     }
+    
+    // Handle rating metadata
+    let hasRating = metadata["rating"] != nil
+    if hasRating, let ratingDict = metadata["rating"] as? [String: Any] {
+      // Update rating state
+      isRatingEnabled = true
+      
+      // Handle different rating types
+      if let ratingType = ratingDict["type"] as? String {
+        switch ratingType {
+        case "heart":
+          if let ratingValue = ratingDict["value"] as? Bool {
+            // For heart/like rating, we don't set a specific MPMediaItem property
+            // as iOS handles like/dislike through remote commands
+            print("📱 Heart rating detected: \(ratingValue)")
+          }
+        case "thumbsUpDown":
+          if let ratingValue = ratingDict["value"] as? Bool {
+            print("📱 Thumbs rating detected: \(ratingValue)")
+          }
+        case "fiveStars", "fourStars", "threeStars":
+          if let ratingValue = ratingDict["value"] as? Double,
+             let maxValue = ratingDict["maxValue"] as? Double {
+            // Convert to 0-1 scale for iOS
+            let normalizedRating = ratingValue / maxValue
+            nowPlayingInfo[MPMediaItemPropertyRating] = normalizedRating
+            print("📱 Star rating detected: \(ratingValue)/\(maxValue)")
+          }
+        case "percentage":
+          if let ratingValue = ratingDict["value"] as? Double {
+            // Convert percentage to 0-1 scale
+            let normalizedRating = ratingValue / 100.0
+            nowPlayingInfo[MPMediaItemPropertyRating] = normalizedRating
+            print("📱 Percentage rating detected: \(ratingValue)%")
+          }
+        default:
+          print("📱 Unknown rating type: \(ratingType)")
+        }
+      }
+    } else {
+      // No rating provided, disable rating controls
+      isRatingEnabled = false
+    }
+    
+    // Update rating commands based on current metadata
+    updateRatingCommands()
     
     // Set elapsed time
     nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = currentPosition
@@ -335,6 +385,10 @@ public class ExpoMediaControlModule: Module {
     currentMetadata.removeAll()
     currentPlaybackState = 0 // PlaybackState.NONE
     currentPosition = 0.0
+    isRatingEnabled = false
+    
+    // Update rating commands to reflect disabled state
+    updateRatingCommands()
     
     // Clear now playing info
     DispatchQueue.main.async { [weak self] in
@@ -536,22 +590,43 @@ public class ExpoMediaControlModule: Module {
       return .success
     }
     
-    // Rating commands (like/dislike)
-    commandCenter.likeCommand.isEnabled = true
-    commandCenter.likeCommand.addTarget { [weak self] event in
-      print("📱 iOS: Like command received from remote control")
-      self?.handleRemoteCommand(command: "setRating", data: ["rating": true, "type": "heart"])
-      return .success
-    }
-    
-    commandCenter.dislikeCommand.isEnabled = true
-    commandCenter.dislikeCommand.addTarget { [weak self] event in
-      print("📱 iOS: Dislike command received from remote control")
-      self?.handleRemoteCommand(command: "setRating", data: ["rating": false, "type": "heart"])
-      return .success
-    }
-    
     print("📱 Remote command handlers registered")
+  }
+  
+  /**
+   * Update rating commands based on current rating state
+   * Enables/disables like/dislike commands based on whether rating is available
+   */
+  private func updateRatingCommands() {
+    let commandCenter = remoteCommandCenter
+    
+    if isRatingEnabled {
+      // Enable rating commands
+      commandCenter.likeCommand.isEnabled = true
+      commandCenter.likeCommand.addTarget { [weak self] event in
+        print("📱 iOS: Like command received from remote control")
+        self?.handleRemoteCommand(command: "setRating", data: ["rating": true, "type": "heart"])
+        return .success
+      }
+      
+      commandCenter.dislikeCommand.isEnabled = true
+      commandCenter.dislikeCommand.addTarget { [weak self] event in
+        print("📱 iOS: Dislike command received from remote control")
+        self?.handleRemoteCommand(command: "setRating", data: ["rating": false, "type": "heart"])
+        return .success
+      }
+      
+      print("📱 Rating commands enabled")
+    } else {
+      // Disable and remove rating command handlers
+      commandCenter.likeCommand.isEnabled = false
+      commandCenter.likeCommand.removeTarget(nil)
+      
+      commandCenter.dislikeCommand.isEnabled = false
+      commandCenter.dislikeCommand.removeTarget(nil)
+      
+      print("📱 Rating commands disabled")
+    }
   }
 
   /**
