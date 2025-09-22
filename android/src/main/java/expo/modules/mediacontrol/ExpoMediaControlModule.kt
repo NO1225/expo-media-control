@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.ServiceConnection
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.AudioAttributes
@@ -14,6 +15,7 @@ import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
+import android.os.IBinder
 import android.os.Looper
 import android.support.v4.media.MediaBrowserCompat
 import android.support.v4.media.MediaMetadataCompat
@@ -45,29 +47,32 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class ExpoMediaControlModule : Module() {
   // =============================================
-  // CONSTANTS AND CONFIGURATION
-  // =============================================
-  
-  companion object {
-    private const val NOTIFICATION_CHANNEL_ID = "media_control_channel"
-    private const val NOTIFICATION_ID = 1001
-    private const val TAG = "ExpoMediaControl"
-    
-    // PlaybackState constants (matching TypeScript enum)
-    private const val PLAYBACK_STATE_NONE = 0
-    private const val PLAYBACK_STATE_STOPPED = 1
-    private const val PLAYBACK_STATE_PLAYING = 2
-    private const val PLAYBACK_STATE_PAUSED = 3
-    private const val PLAYBACK_STATE_BUFFERING = 4
-    private const val PLAYBACK_STATE_ERROR = 5
-  }
-
-  // =============================================
   // PROPERTIES AND STATE MANAGEMENT
   // =============================================
   
   /// MediaSession for handling media controls and state
   private var mediaSession: MediaSessionCompat? = null
+  
+  /// Service connection and binding
+  private var mediaService: MediaPlaybackService? = null
+  private var isServiceBound = false
+  
+  private val serviceConnection = object : ServiceConnection {
+    override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
+      val binder = service as MediaPlaybackService.MediaServiceBinder
+      mediaService = binder.getService()
+      mediaSession = mediaService?.getMediaSession()
+      isServiceBound = true
+      println("🤖 MediaPlaybackService connected")
+    }
+
+    override fun onServiceDisconnected(name: ComponentName?) {
+      mediaService = null
+      mediaSession = null
+      isServiceBound = false
+      println("🤖 MediaPlaybackService disconnected")
+    }
+  }
   
   /// Current media metadata
   private var currentMetadata: MutableMap<String, Any> = ConcurrentHashMap()
@@ -116,12 +121,65 @@ class ExpoMediaControlModule : Module() {
   private var moduleScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
   // =============================================
+  // COMPANION OBJECT FOR STATIC ACCESS
+  // =============================================
+  
+  companion object {
+    private const val NOTIFICATION_CHANNEL_ID = "media_control_channel"
+    private const val NOTIFICATION_ID = 1001
+    private const val TAG = "ExpoMediaControl"
+    
+    // PlaybackState constants (matching TypeScript enum)
+    private const val PLAYBACK_STATE_NONE = 0
+    private const val PLAYBACK_STATE_STOPPED = 1
+    private const val PLAYBACK_STATE_PLAYING = 2
+    private const val PLAYBACK_STATE_PAUSED = 3
+    private const val PLAYBACK_STATE_BUFFERING = 4
+    private const val PLAYBACK_STATE_ERROR = 5
+    
+    // Static reference for service communication
+    private var moduleInstance: ExpoMediaControlModule? = null
+    
+    @JvmStatic
+    fun handleMediaEvent(command: String, data: Map<String, Any>?) {
+      try {
+        moduleInstance?.handleMediaCommand(command, data)
+      } catch (e: Exception) {
+        println("❌ Error handling media event: ${e.message}")
+        // Don't crash if there's an issue with event handling
+      }
+    }
+  }
+
+  // =============================================
   // MODULE DEFINITION
   // =============================================
   
   override fun definition() = ModuleDefinition {
     // Sets the name of the module that JavaScript code will use to refer to the module
     Name("ExpoMediaControl")
+
+    // Module lifecycle callbacks
+    OnCreate {
+      try {
+        moduleInstance = this@ExpoMediaControlModule
+        println("🤖 ExpoMediaControl module created")
+      } catch (e: Exception) {
+        println("❌ Error during module creation: ${e.message}")
+      }
+    }
+    
+    OnDestroy {
+      try {
+        if (isControlsEnabled) {
+          disableMediaControls()
+        }
+        moduleInstance = null
+        println("🤖 ExpoMediaControl module destroyed")
+      } catch (e: Exception) {
+        println("❌ Error during module cleanup: ${e.message}")
+      }
+    }
 
     // =============================================
     // MAIN CONTROL METHODS
@@ -253,8 +311,8 @@ class ExpoMediaControlModule : Module() {
   // =============================================
 
   /**
-   * Enable media controls implementation
-   * Sets up MediaSession, audio focus, and notification channel
+   * Enable media controls with the specified configuration options
+   * Starts and binds to MediaPlaybackService for proper background support
    */
   private fun enableMediaControls(options: Map<String, Any>) {
     try {
@@ -270,30 +328,43 @@ class ExpoMediaControlModule : Module() {
       controlOptions.clear()
       controlOptions.putAll(options)
       
-      // Create notification channel for Android O and above
-      createNotificationChannel()
+      val context = appContext.reactContext
+      if (context == null) {
+        println("❌ React context is null, cannot enable media controls")
+        throw Exception("React context is null")
+      }
       
-      // Initialize MediaSession
-      initializeMediaSession()
+      // Create and bind to MediaPlaybackService
+      val serviceIntent = Intent(context, MediaPlaybackService::class.java)
       
-      // Request audio focus if configured
-      if (shouldRequestAudioFocus()) {
-        requestAudioFocus()
+      // Start the service first
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        context.startForegroundService(serviceIntent)
+      } else {
+        context.startService(serviceIntent)
+      }
+      
+      // Then bind to it for communication
+      val bindResult = context.bindService(serviceIntent, serviceConnection, Context.BIND_AUTO_CREATE)
+      if (!bindResult) {
+        println("❌ Failed to bind to MediaPlaybackService")
+        throw Exception("Failed to bind to MediaPlaybackService")
       }
       
       // Mark controls as enabled
       isControlsEnabled = true
       
-      println("🤖 Media controls enabled successfully")
+      println("🤖 Media controls enabled successfully with service")
     } catch (e: Exception) {
       println("❌ Failed to enable media controls: ${e.message}")
+      e.printStackTrace()
       throw e
     }
   }
 
   /**
    * Disable media controls implementation
-   * Cleans up MediaSession, releases audio focus, and removes notifications
+   * Unbinds from service and cleans up resources
    */
   private fun disableMediaControls() {
     try {
@@ -305,35 +376,33 @@ class ExpoMediaControlModule : Module() {
         println("⚠️ Error canceling coroutine scope: ${e.message}")
       }
       
-      // Release audio focus
-      try {
-        releaseAudioFocus()
-      } catch (e: Exception) {
-        println("⚠️ Error releasing audio focus: ${e.message}")
-      }
+      val context = appContext.reactContext
       
-      // Stop and release MediaSession with proper error handling
+      // Unbind from service
       try {
-        mediaSession?.let { session ->
-          if (session.isActive) {
-            session.isActive = false
-          }
-          session.release()
-          mediaSession = null
-          println("🤖 MediaSession released successfully")
+        if (isServiceBound && context != null) {
+          context.unbindService(serviceConnection)
+          isServiceBound = false
+          println("🤖 Service unbound successfully")
         }
       } catch (e: Exception) {
-        println("⚠️ Error releasing MediaSession: ${e.message}")
-        // Still set to null to prevent further usage
-        mediaSession = null
+        println("⚠️ Error unbinding service: ${e.message}")
       }
       
-      // Remove notification
+      // Stop the service
       try {
-        notificationManager?.cancel(NOTIFICATION_ID)
+        if (context != null) {
+          val serviceIntent = Intent(context, MediaPlaybackService::class.java)
+          context.stopService(serviceIntent)
+          println("🤖 Service stopped successfully")
+        }
       } catch (e: Exception) {
-        println("⚠️ Error canceling notification: ${e.message}")
+        println("⚠️ Error stopping service: ${e.message}")
       }
+      
+      // Clear references
+      mediaService = null
+      mediaSession = null
       
       // Reset state
       isControlsEnabled = false
@@ -345,83 +414,61 @@ class ExpoMediaControlModule : Module() {
       println("🤖 Media controls disabled successfully")
     } catch (e: Exception) {
       println("❌ Failed to disable media controls: ${e.message}")
+      e.printStackTrace()
       throw e
     }
   }
 
   /**
    * Update metadata implementation
-   * Converts metadata map and updates MediaSession and notification
+   * Delegates to MediaPlaybackService for proper MediaSession management
    */
   private fun updateMetadata(metadata: Map<String, Any>) {
     try {
       // Store current metadata with thread-safe access
       synchronized(currentMetadata) {
         currentMetadata.clear()
-        currentMetadata.putAll(metadata)
-      }
-      
-      // Build MediaMetadata
-      val metadataBuilder = MediaMetadataCompat.Builder()
-      
-      // Basic information
-      metadata["title"]?.let { metadataBuilder.putString(MediaMetadataCompat.METADATA_KEY_TITLE, it.toString()) }
-      metadata["artist"]?.let { metadataBuilder.putString(MediaMetadataCompat.METADATA_KEY_ARTIST, it.toString()) }
-      metadata["album"]?.let { metadataBuilder.putString(MediaMetadataCompat.METADATA_KEY_ALBUM, it.toString()) }
-      metadata["genre"]?.let { metadataBuilder.putString(MediaMetadataCompat.METADATA_KEY_GENRE, it.toString()) }
-      
-      // Duration and track information
-      (metadata["duration"] as? Number)?.let { 
-        metadataBuilder.putLong(MediaMetadataCompat.METADATA_KEY_DURATION, (it.toDouble() * 1000).toLong())
-      }
-      (metadata["trackNumber"] as? Number)?.let { 
-        metadataBuilder.putLong(MediaMetadataCompat.METADATA_KEY_TRACK_NUMBER, it.toLong())
-      }
-      (metadata["albumTrackCount"] as? Number)?.let { 
-        metadataBuilder.putLong(MediaMetadataCompat.METADATA_KEY_NUM_TRACKS, it.toLong())
-      }
-      
-      // Handle artwork
-      val artworkMap = metadata["artwork"] as? Map<String, Any>
-      val artworkUri = artworkMap?.get("uri") as? String
-      
-      if (artworkUri != null) {
-        // Load artwork asynchronously with proper scope management
-        moduleScope.launch(Dispatchers.IO) {
-          try {
-            println("🤖 Loading artwork from: $artworkUri")
-            val bitmap = loadArtwork(artworkUri)
-            if (bitmap != null) {
-              println("🤖 Artwork loaded successfully: ${bitmap.width}x${bitmap.height}")
-              metadataBuilder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, bitmap)
-              metadataBuilder.putBitmap(MediaMetadataCompat.METADATA_KEY_ART, bitmap)
-            } else {
-              println("❌ Failed to load artwork: bitmap is null")
+        
+        // Clean and validate metadata before storing
+        val cleanMetadata = mutableMapOf<String, Any>()
+        metadata.forEach { (key, value) ->
+          when {
+            value is String -> cleanMetadata[key] = value
+            value is Number -> cleanMetadata[key] = value
+            value is Boolean -> cleanMetadata[key] = value
+            value is Map<*, *> -> {
+              // Handle nested maps (like artwork)
+              val nestedMap = mutableMapOf<String, Any>()
+              value.forEach { (nestedKey, nestedValue) ->
+                if (nestedKey is String && nestedValue != null) {
+                  when (nestedValue) {
+                    is String -> nestedMap[nestedKey] = nestedValue
+                    is Number -> nestedMap[nestedKey] = nestedValue
+                    is Boolean -> nestedMap[nestedKey] = nestedValue
+                  }
+                }
+              }
+              if (nestedMap.isNotEmpty()) {
+                cleanMetadata[key] = nestedMap
+              }
             }
-            
-            // Update MediaSession on main thread
-            withContext(Dispatchers.Main) {
-              mediaSession?.setMetadata(metadataBuilder.build())
-              updateNotification()
-              println("🤖 MediaSession updated with artwork")
-            }
-          } catch (e: Exception) {
-            println("❌ Failed to load artwork: ${e.message}")
-            e.printStackTrace()
-            // Update without artwork on main thread
-            withContext(Dispatchers.Main) {
-              mediaSession?.setMetadata(metadataBuilder.build())
-              updateNotification()
+            else -> {
+              // Skip invalid types but log them
+              println("⚠️ Skipping metadata field '$key' with unsupported type: ${value?.javaClass?.simpleName}")
             }
           }
         }
-      } else {
-        // Update without artwork
-        mediaSession?.setMetadata(metadataBuilder.build())
-        updateNotification()
+        
+        currentMetadata.putAll(cleanMetadata)
       }
       
-      println("🤖 Metadata updated: ${metadata["title"]} - ${metadata["artist"]}")
+      // Delegate to service if bound
+      if (isServiceBound) {
+        mediaService?.updateMetadata(currentMetadata.toMap())
+        println("🤖 Metadata updated via service: ${currentMetadata["title"]} - ${currentMetadata["artist"]}")
+      } else {
+        println("⚠️ Service not bound, cannot update metadata")
+      }
     } catch (e: Exception) {
       println("❌ Failed to update metadata: ${e.message}")
       e.printStackTrace()
@@ -431,7 +478,7 @@ class ExpoMediaControlModule : Module() {
 
   /**
    * Update playback state implementation
-   * Updates MediaSession playback state and refreshes notification
+   * Delegates to MediaPlaybackService for proper state management
    */
   private fun updatePlaybackState(state: Int, position: Double?) {
     try {
@@ -442,31 +489,16 @@ class ExpoMediaControlModule : Module() {
         currentPosition = (it * 1000).toLong() // Convert to milliseconds
       }
       
-      // Convert to MediaSession playback state
-      val playbackState = when (state) {
-        PLAYBACK_STATE_NONE -> PlaybackStateCompat.STATE_NONE
-        PLAYBACK_STATE_STOPPED -> PlaybackStateCompat.STATE_STOPPED
-        PLAYBACK_STATE_PLAYING -> PlaybackStateCompat.STATE_PLAYING
-        PLAYBACK_STATE_PAUSED -> PlaybackStateCompat.STATE_PAUSED
-        PLAYBACK_STATE_BUFFERING -> PlaybackStateCompat.STATE_BUFFERING
-        PLAYBACK_STATE_ERROR -> PlaybackStateCompat.STATE_ERROR
-        else -> PlaybackStateCompat.STATE_NONE
+      // Delegate to service if bound
+      if (isServiceBound) {
+        mediaService?.updatePlaybackState(state, position)
+        println("🤖 Playback state updated via service: $state, position: ${currentPosition}ms")
+      } else {
+        println("⚠️ Service not bound, cannot update playback state")
       }
-      
-      // Build PlaybackState
-      val stateBuilder = PlaybackStateCompat.Builder()
-        .setState(playbackState, currentPosition, if (playbackState == PlaybackStateCompat.STATE_PLAYING) 1.0f else 0.0f)
-        .setActions(getPlaybackActions())
-      
-      // Update MediaSession
-      mediaSession?.setPlaybackState(stateBuilder.build())
-      
-      // Update notification
-      updateNotification()
-      
-      println("🤖 Playback state updated: $state, position: ${currentPosition}ms")
     } catch (e: Exception) {
       println("❌ Failed to update playback state: ${e.message}")
+      e.printStackTrace()
       throw e
     }
   }
@@ -481,20 +513,18 @@ class ExpoMediaControlModule : Module() {
       currentPlaybackState = PLAYBACK_STATE_NONE
       currentPosition = 0L
       
-      // Reset MediaSession
-      mediaSession?.setMetadata(null)
-      mediaSession?.setPlaybackState(
-        PlaybackStateCompat.Builder()
-          .setState(PlaybackStateCompat.STATE_NONE, 0L, 0.0f)
-          .build()
-      )
-      
-      // Remove notification
-      notificationManager?.cancel(NOTIFICATION_ID)
-      
-      println("🤖 Controls reset to initial state")
+      // Reset via service if bound
+      if (isServiceBound) {
+        // Reset metadata and state via service
+        mediaService?.updateMetadata(emptyMap())
+        mediaService?.updatePlaybackState(PLAYBACK_STATE_NONE, 0.0)
+        println("🤖 Controls reset via service to initial state")
+      } else {
+        println("⚠️ Service not bound, cannot reset controls")
+      }
     } catch (e: Exception) {
       println("❌ Failed to reset controls: ${e.message}")
+      e.printStackTrace()
       throw e
     }
   }
@@ -1053,7 +1083,7 @@ class ExpoMediaControlModule : Module() {
    * Handle remote command events
    * Processes media control commands and sends events to JavaScript
    */
-  private fun handleMediaCommand(command: String, data: Map<String, Any>?) {
+  fun handleMediaCommand(command: String, data: Map<String, Any>?) {
     val event = mapOf(
       "command" to command,
       "data" to data,
