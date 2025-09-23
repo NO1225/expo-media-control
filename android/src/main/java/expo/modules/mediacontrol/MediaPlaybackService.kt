@@ -126,7 +126,21 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
   }
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-    MediaButtonReceiver.handleIntent(mediaSession, intent)
+    try {
+      MediaButtonReceiver.handleIntent(mediaSession, intent)
+      
+      // For Android O and above, we need to start foreground service
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        val notification = createNotification()
+        startForeground(NOTIFICATION_ID, notification)
+        println("🤖 Service started in foreground with notification")
+      }
+      
+    } catch (e: Exception) {
+      println("❌ Error in onStartCommand: ${e.message}")
+      e.printStackTrace()
+    }
+    
     return START_STICKY
   }
 
@@ -437,8 +451,23 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
   }
 
   private fun updateNotification() {
-    if (currentPlaybackState != PlaybackStateCompat.STATE_NONE) {
-      notificationManager.notify(NOTIFICATION_ID, createNotification())
+    try {
+      if (currentPlaybackState != PlaybackStateCompat.STATE_NONE) {
+        serviceScope.launch {
+          try {
+            val notification = withContext(Dispatchers.IO) {
+              createNotification()
+            }
+            withContext(Dispatchers.Main) {
+              notificationManager.notify(NOTIFICATION_ID, notification)
+            }
+          } catch (e: Exception) {
+            println("❌ Error updating notification: ${e.message}")
+          }
+        }
+      }
+    } catch (e: Exception) {
+      println("❌ Error in updateNotification: ${e.message}")
     }
   }
 
@@ -596,19 +625,25 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
   // Utility Methods
   // =============================================
 
-  private fun loadArtwork(uri: String): Bitmap? {
+  private suspend fun loadArtwork(uri: String): Bitmap? {
     return try {
-      if (uri.startsWith("http")) {
-        // Load remote artwork (simplified - you might want to add caching)
-        val url = java.net.URL(uri)
-        android.graphics.BitmapFactory.decodeStream(url.openConnection().getInputStream())
-      } else {
-        // Load local artwork
-        contentResolver.openInputStream(android.net.Uri.parse(uri))?.use { inputStream ->
-          android.graphics.BitmapFactory.decodeStream(inputStream)
+      withContext(Dispatchers.IO) {
+        if (uri.startsWith("http")) {
+          // Load remote artwork on IO thread (simplified - you might want to add caching)
+          val url = java.net.URL(uri)
+          val connection = url.openConnection()
+          connection.connectTimeout = 5000 // 5 second timeout
+          connection.readTimeout = 5000    // 5 second read timeout
+          android.graphics.BitmapFactory.decodeStream(connection.getInputStream())
+        } else {
+          // Load local artwork
+          contentResolver.openInputStream(android.net.Uri.parse(uri))?.use { inputStream ->
+            android.graphics.BitmapFactory.decodeStream(inputStream)
+          }
         }
       }
     } catch (e: Exception) {
+      println("❌ Failed to load artwork: ${e.message}")
       null
     }
   }

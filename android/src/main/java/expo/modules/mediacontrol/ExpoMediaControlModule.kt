@@ -34,6 +34,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
 
@@ -59,18 +60,55 @@ class ExpoMediaControlModule : Module() {
   
   private val serviceConnection = object : ServiceConnection {
     override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
-      val binder = service as MediaPlaybackService.MediaServiceBinder
-      mediaService = binder.getService()
-      mediaSession = mediaService?.getMediaSession()
-      isServiceBound = true
-      println("🤖 MediaPlaybackService connected")
+      try {
+        val binder = service as MediaPlaybackService.MediaServiceBinder
+        mediaService = binder.getService()
+        mediaSession = mediaService?.getMediaSession()
+        isServiceBound = true
+        println("🤖 MediaPlaybackService connected")
+        
+        // Apply any pending metadata or state updates
+        moduleScope.launch {
+          try {
+            if (currentMetadata.isNotEmpty()) {
+              mediaService?.updateMetadata(currentMetadata.toMap())
+            }
+            mediaService?.updatePlaybackState(currentPlaybackState, currentPosition.toDouble())
+          } catch (e: Exception) {
+            println("⚠️ Error applying pending updates after service connection: ${e.message}")
+          }
+        }
+      } catch (e: Exception) {
+        println("❌ Error in onServiceConnected: ${e.message}")
+        isServiceBound = false
+      }
     }
 
     override fun onServiceDisconnected(name: ComponentName?) {
+      println("🤖 MediaPlaybackService disconnected")
       mediaService = null
       mediaSession = null
       isServiceBound = false
-      println("🤖 MediaPlaybackService disconnected")
+    }
+    
+    override fun onBindingDied(name: ComponentName?) {
+      println("⚠️ MediaPlaybackService binding died")
+      mediaService = null
+      mediaSession = null
+      isServiceBound = false
+      // Attempt to reconnect
+      val connectionRef = this
+      moduleScope.launch {
+        try {
+          val context = appContext.reactContext
+          if (context != null && isControlsEnabled) {
+            val serviceIntent = Intent(context, MediaPlaybackService::class.java)
+            context.bindService(serviceIntent, connectionRef, Context.BIND_AUTO_CREATE)
+          }
+        } catch (e: Exception) {
+          println("❌ Failed to reconnect to service: ${e.message}")
+        }
+      }
     }
   }
   
@@ -334,21 +372,36 @@ class ExpoMediaControlModule : Module() {
         throw Exception("React context is null")
       }
       
-      // Create and bind to MediaPlaybackService
-      val serviceIntent = Intent(context, MediaPlaybackService::class.java)
-      
-      // Start the service first
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-        context.startForegroundService(serviceIntent)
-      } else {
-        context.startService(serviceIntent)
-      }
-      
-      // Then bind to it for communication
-      val bindResult = context.bindService(serviceIntent, serviceConnection, Context.BIND_AUTO_CREATE)
-      if (!bindResult) {
-        println("❌ Failed to bind to MediaPlaybackService")
-        throw Exception("Failed to bind to MediaPlaybackService")
+      // Create and bind to MediaPlaybackService asynchronously to avoid ANR
+      moduleScope.launch {
+        try {
+          val serviceIntent = Intent(context, MediaPlaybackService::class.java)
+          
+          // Start the service first
+          withContext(Dispatchers.Main) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+              context.startForegroundService(serviceIntent)
+            } else {
+              context.startService(serviceIntent)
+            }
+          }
+          
+          // Small delay to allow service to start
+          delay(100)
+          
+          // Then bind to it for communication
+          withContext(Dispatchers.Main) {
+            val bindResult = context.bindService(serviceIntent, serviceConnection, Context.BIND_AUTO_CREATE)
+            if (!bindResult) {
+              println("❌ Failed to bind to MediaPlaybackService")
+              throw Exception("Failed to bind to MediaPlaybackService")
+            }
+            println("🤖 Service binding initiated")
+          }
+        } catch (e: Exception) {
+          println("❌ Failed to start/bind service: ${e.message}")
+          throw e
+        }
       }
       
       // Mark controls as enabled
@@ -364,54 +417,68 @@ class ExpoMediaControlModule : Module() {
 
   /**
    * Disable media controls implementation
-   * Unbinds from service and cleans up resources
+   * Unbinds from service and cleans up resources asynchronously to avoid ANR
    */
   private fun disableMediaControls() {
     try {
-      // Cancel all ongoing coroutines to prevent memory leaks
-      try {
-        moduleScope.cancel()
-        println("🤖 Coroutine scope canceled")
-      } catch (e: Exception) {
-        println("⚠️ Error canceling coroutine scope: ${e.message}")
-      }
-      
-      val context = appContext.reactContext
-      
-      // Unbind from service
-      try {
-        if (isServiceBound && context != null) {
-          context.unbindService(serviceConnection)
-          isServiceBound = false
-          println("🤖 Service unbound successfully")
-        }
-      } catch (e: Exception) {
-        println("⚠️ Error unbinding service: ${e.message}")
-      }
-      
-      // Stop the service
-      try {
-        if (context != null) {
-          val serviceIntent = Intent(context, MediaPlaybackService::class.java)
-          context.stopService(serviceIntent)
-          println("🤖 Service stopped successfully")
-        }
-      } catch (e: Exception) {
-        println("⚠️ Error stopping service: ${e.message}")
-      }
-      
-      // Clear references
-      mediaService = null
-      mediaSession = null
-      
-      // Reset state
+      // Mark as disabled immediately to prevent new operations
       isControlsEnabled = false
-      currentMetadata.clear()
-      currentPlaybackState = PLAYBACK_STATE_NONE
-      currentPosition = 0L
-      controlOptions.clear()
       
-      println("🤖 Media controls disabled successfully")
+      // Perform cleanup asynchronously to avoid blocking the main thread
+      moduleScope.launch {
+        try {
+          val context = appContext.reactContext
+          
+          // Unbind from service
+          withContext(Dispatchers.Main) {
+            try {
+              if (isServiceBound && context != null) {
+                context.unbindService(serviceConnection)
+                isServiceBound = false
+                println("🤖 Service unbound successfully")
+              }
+            } catch (e: Exception) {
+              println("⚠️ Error unbinding service: ${e.message}")
+            }
+          }
+          
+          // Stop the service
+          withContext(Dispatchers.Main) {
+            try {
+              if (context != null) {
+                val serviceIntent = Intent(context, MediaPlaybackService::class.java)
+                context.stopService(serviceIntent)
+                println("🤖 Service stopped successfully")
+              }
+            } catch (e: Exception) {
+              println("⚠️ Error stopping service: ${e.message}")
+            }
+          }
+          
+          // Clear references
+          mediaService = null
+          mediaSession = null
+          
+          // Reset state
+          currentMetadata.clear()
+          currentPlaybackState = PLAYBACK_STATE_NONE
+          currentPosition = 0L
+          controlOptions.clear()
+          
+          println("🤖 Media controls disabled successfully")
+        } catch (e: Exception) {
+          println("❌ Error during service cleanup: ${e.message}")
+        } finally {
+          // Cancel all ongoing coroutines to prevent memory leaks
+          try {
+            moduleScope.cancel()
+            println("🤖 Coroutine scope canceled")
+          } catch (e: Exception) {
+            println("⚠️ Error canceling coroutine scope: ${e.message}")
+          }
+        }
+      }
+      
     } catch (e: Exception) {
       println("❌ Failed to disable media controls: ${e.message}")
       e.printStackTrace()
@@ -989,17 +1056,20 @@ class ExpoMediaControlModule : Module() {
   }
 
   /**
-   * Load artwork from URI
+   * Load artwork from URI asynchronously
    * Handles both local and remote artwork loading with proper error handling
+   * This method is now async to prevent ANR when loading remote images
    */
-  private fun loadArtwork(uri: String): Bitmap? {
+  private suspend fun loadArtwork(uri: String): Bitmap? {
     return try {
-      if (uri.startsWith("http://") || uri.startsWith("https://")) {
-        // Load remote image
-        loadRemoteArtwork(uri)
-      } else {
-        // Load local image
-        loadLocalArtwork(uri)
+      withContext(Dispatchers.IO) {
+        if (uri.startsWith("http://") || uri.startsWith("https://")) {
+          // Load remote image on IO thread
+          loadRemoteArtwork(uri)
+        } else {
+          // Load local image on IO thread
+          loadLocalArtwork(uri)
+        }
       }
     } catch (e: Exception) {
       println("❌ Failed to load artwork: ${e.message}")
@@ -1010,6 +1080,7 @@ class ExpoMediaControlModule : Module() {
   /**
    * Load artwork from remote URL
    * Downloads and processes remote artwork images with timeout and error handling
+   * Now runs on IO thread to prevent ANRs
    */
   private fun loadRemoteArtwork(uri: String): Bitmap? {
     return try {
@@ -1017,8 +1088,8 @@ class ExpoMediaControlModule : Module() {
       val url = URL(uri)
       val connection = url.openConnection()
       connection.doInput = true
-      connection.connectTimeout = 10000 // 10 second timeout
-      connection.readTimeout = 10000    // 10 second read timeout
+      connection.connectTimeout = 3000 // 3 second timeout (reduced from 10)
+      connection.readTimeout = 3000    // 3 second read timeout (reduced from 10)
       connection.connect()
       val inputStream = connection.getInputStream()
       val bitmap = BitmapFactory.decodeStream(inputStream)
