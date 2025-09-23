@@ -9,9 +9,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Bitmap
-import android.media.AudioAttributes
-import android.media.AudioFocusRequest
-import android.media.AudioManager
 import android.os.Binder
 import android.os.Build
 import android.os.Bundle
@@ -35,6 +32,9 @@ import java.util.concurrent.ConcurrentHashMap
  * Required for Bluetooth controls and proper system integration
  */
 class MediaPlaybackService : MediaBrowserServiceCompat() {
+
+  // Add a flag to track foreground state
+  private var isForegroundService = false
 
   companion object {
     private const val TAG = "MediaPlaybackService"
@@ -66,13 +66,6 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
   // Current state tracking
   private var currentPlaybackState = PlaybackStateCompat.STATE_NONE
   private var currentPosition = 0L
-  
-  // Audio management
-  private val audioManager: AudioManager by lazy {
-    getSystemService(Context.AUDIO_SERVICE) as AudioManager
-  }
-  private var audioFocusRequest: AudioFocusRequest? = null
-  private var hasAudioFocus = false
   
   // Notification management
   private val notificationManager: NotificationManager by lazy {
@@ -115,7 +108,10 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
     serviceScope.cancel()
     unregisterReceiver(mediaActionReceiver)
     mediaSession.release()
-    releaseAudioFocus()
+    
+    // Reset foreground state flag
+    isForegroundService = false
+    println("🤖 MediaPlaybackService destroyed")
   }
 
   override fun onBind(intent: Intent?): IBinder? {
@@ -130,9 +126,11 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
       MediaButtonReceiver.handleIntent(mediaSession, intent)
       
       // For Android O and above, we need to start foreground service
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+      // But only if we're not already in foreground
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !isForegroundService) {
         val notification = createNotification()
         startForeground(NOTIFICATION_ID, notification)
+        isForegroundService = true
         println("🤖 Service started in foreground with notification")
       }
       
@@ -201,11 +199,19 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
   private val mediaSessionCallback = object : MediaSessionCompat.Callback() {
     override fun onPlay() {
       try {
-        if (requestAudioFocus()) {
-          currentPlaybackState = PlaybackStateCompat.STATE_PLAYING
-          updatePlaybackState()
-          sendEventToModule("play", null)
+        currentPlaybackState = PlaybackStateCompat.STATE_PLAYING
+        updatePlaybackState()
+        sendEventToModule("play", null)
+        
+        // Only start foreground service if not already in foreground
+        if (!isForegroundService) {
           startForeground(NOTIFICATION_ID, createNotification())
+          isForegroundService = true
+          println("🤖 Service started in foreground")
+        } else {
+          // Just update the existing notification
+          updateNotification()
+          println("🤖 Service already in foreground, updated notification")
         }
       } catch (e: Exception) {
         println("❌ Error in onPlay: ${e.message}")
@@ -229,7 +235,12 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
         currentPosition = 0L
         updatePlaybackState()
         sendEventToModule("stop", null)
+        
+        // Stop foreground service and reset flag
         stopForeground(false)
+        isForegroundService = false
+        println("🤖 Service stopped from foreground")
+        
         stopSelf()
       } catch (e: Exception) {
         println("❌ Error in onStop: ${e.message}")
@@ -520,76 +531,6 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
       packageManager.getApplicationInfo(packageName, 0).icon
     } catch (e: Exception) {
       android.R.drawable.ic_media_play
-    }
-  }
-
-  // =============================================
-  // Audio Focus Management
-  // =============================================
-
-  private fun requestAudioFocus(): Boolean {
-    val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-      val focusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN).run {
-        setAudioAttributes(
-          AudioAttributes.Builder().run {
-            setUsage(AudioAttributes.USAGE_MEDIA)
-            setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-            build()
-          }
-        )
-        setAcceptsDelayedFocusGain(true)
-        setOnAudioFocusChangeListener(audioFocusChangeListener)
-        build()
-      }
-      audioFocusRequest = focusRequest
-      audioManager.requestAudioFocus(focusRequest)
-    } else {
-      @Suppress("DEPRECATION")
-      audioManager.requestAudioFocus(
-        audioFocusChangeListener,
-        AudioManager.STREAM_MUSIC,
-        AudioManager.AUDIOFOCUS_GAIN
-      )
-    }
-
-    hasAudioFocus = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
-    return hasAudioFocus
-  }
-
-  private fun releaseAudioFocus() {
-    if (hasAudioFocus) {
-      val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-        audioFocusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
-          ?: AudioManager.AUDIOFOCUS_REQUEST_FAILED
-      } else {
-        @Suppress("DEPRECATION")
-        audioManager.abandonAudioFocus(audioFocusChangeListener)
-      }
-      hasAudioFocus = false
-    }
-  }
-
-  private val audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
-    when (focusChange) {
-      AudioManager.AUDIOFOCUS_GAIN -> {
-        hasAudioFocus = true
-        // Resume if we were playing before losing focus
-        if (currentPlaybackState == PlaybackStateCompat.STATE_PAUSED) {
-          mediaSessionCallback.onPlay()
-        }
-      }
-      AudioManager.AUDIOFOCUS_LOSS -> {
-        hasAudioFocus = false
-        mediaSessionCallback.onPause()
-      }
-      AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
-        hasAudioFocus = false
-        mediaSessionCallback.onPause()
-      }
-      AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
-        // Lower volume but continue playing
-        // This could be implemented to reduce volume
-      }
     }
   }
 
