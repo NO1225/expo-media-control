@@ -9,7 +9,20 @@
   <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
   
   <application>
-    <!-- Media button receiver for handling hardware media button events -->
+    <!-- Foreground service for media playback that handles media buttons directly -->
+    <service
+      android:name="expo.modules.mediacontrol.MediaPlaybackService"
+      android:exported="true"
+      android:foregroundServiceType="mediaPlayback">
+      <intent-filter>
+        <action android:name="androidx.media.browse.MediaBrowserService" />
+      </intent-filter>
+      <intent-filter>
+        <action android:name="android.intent.action.MEDIA_BUTTON" />
+      </intent-filter>
+    </service>
+    
+    <!-- Media button receiver that forwards to our service -->
     <receiver 
       android:name="androidx.media.session.MediaButtonReceiver"
       android:exported="true">
@@ -17,15 +30,5 @@
         <action android:name="android.intent.action.MEDIA_BUTTON" />
       </intent-filter>
     </receiver>
-    
-    <!-- Foreground service for media playback (optional, for apps that need background service) -->
-    <service
-      android:name="expo.modules.mediacontrol.MediaPlaybackService"
-      android:exported="false"
-      android:foregroundServiceType="mediaPlayback">
-      <intent-filter>
-        <action android:name="androidx.media.browse.MediaBrowserService" />
-      </intent-filter>
-    </service>
   </application>
 </manifest>

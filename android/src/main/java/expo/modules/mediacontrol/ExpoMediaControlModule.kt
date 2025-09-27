@@ -377,7 +377,7 @@ class ExpoMediaControlModule : Module() {
         try {
           val serviceIntent = Intent(context, MediaPlaybackService::class.java)
           
-          // Start the service first
+          // Start the service first - this ensures MediaButtonReceiver can find it
           withContext(Dispatchers.Main) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
               context.startForegroundService(serviceIntent)
@@ -386,8 +386,8 @@ class ExpoMediaControlModule : Module() {
             }
           }
           
-          // Small delay to allow service to start
-          delay(100)
+          // Small delay to allow service to start and initialize its MediaSession
+          delay(200)
           
           // Then bind to it for communication
           withContext(Dispatchers.Main) {
@@ -398,6 +398,15 @@ class ExpoMediaControlModule : Module() {
             }
             println("🤖 Service binding initiated")
           }
+          
+          // Wait a bit more for service connection to complete
+          delay(100)
+          
+          // Initialize/get MediaSession from service
+          withContext(Dispatchers.Main) {
+            initializeMediaSession()
+          }
+          
         } catch (e: Exception) {
           println("❌ Failed to start/bind service: ${e.message}")
           throw e
@@ -605,84 +614,22 @@ class ExpoMediaControlModule : Module() {
    * Initialize MediaSession with proper configuration
    * Sets up callbacks and prepares for media control handling
    */
+  /**
+   * Initialize MediaSession - Now using the service's MediaSession instead of creating our own
+   * This prevents conflicts with MediaButtonReceiver which expects one consistent MediaSession
+   */
   private fun initializeMediaSession() {
     try {
-      val context = appContext.reactContext
-      if (context == null) {
-        println("❌ React context is null, cannot initialize MediaSession")
-        return
+      // Wait for service to be bound and use its MediaSession
+      if (mediaService != null) {
+        mediaSession = mediaService!!.getMediaSession()
+        println("🤖 Using MediaSession from service")
+      } else {
+        println("⚠️ Service not yet bound, MediaSession will be initialized when service connects")
       }
-      
-      // Create MediaSession
-      mediaSession = MediaSessionCompat(context, TAG).apply {
-        // Set callback for handling media button events
-        setCallback(object : MediaSessionCompat.Callback() {
-          override fun onPlay() {
-            handleMediaCommand("play", null)
-          }
-
-          override fun onPause() {
-            handleMediaCommand("pause", null)
-          }
-
-          override fun onStop() {
-            handleMediaCommand("stop", null)
-          }
-
-          override fun onSkipToNext() {
-            handleMediaCommand("nextTrack", null)
-          }
-
-          override fun onSkipToPrevious() {
-            handleMediaCommand("previousTrack", null)
-          }
-
-          override fun onSeekTo(pos: Long) {
-            val data = mapOf("position" to (pos / 1000.0)) // Convert to seconds
-            handleMediaCommand("seek", data)
-          }
-
-          override fun onFastForward() {
-            val skipInterval = getSkipInterval()
-            val data = mapOf("interval" to skipInterval)
-            handleMediaCommand("skipForward", data)
-          }
-
-          override fun onRewind() {
-            val skipInterval = getSkipInterval()
-            val data = mapOf("interval" to skipInterval)
-            handleMediaCommand("skipBackward", data)
-          }
-
-          override fun onSetRating(rating: RatingCompat) {
-            val data = mapOf(
-              "rating" to rating.getRating(),
-              "type" to when (rating.ratingStyle) {
-                RatingCompat.RATING_HEART -> "heart"
-                RatingCompat.RATING_THUMB_UP_DOWN -> "thumbsUpDown"
-                RatingCompat.RATING_3_STARS -> "threeStars"
-                RatingCompat.RATING_4_STARS -> "fourStars"
-                RatingCompat.RATING_5_STARS -> "fiveStars"
-                RatingCompat.RATING_PERCENTAGE -> "percentage"
-                else -> "unknown"
-              }
-            )
-            handleMediaCommand("setRating", data)
-          }
-        })
-        
-        // Set session flags
-        setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS)
-        
-        // Activate the session
-        isActive = true
-      }
-      
-      println("🤖 MediaSession initialized successfully")
     } catch (e: Exception) {
       println("❌ Failed to initialize MediaSession: ${e.message}")
       e.printStackTrace()
-      throw e
     }
   }
 

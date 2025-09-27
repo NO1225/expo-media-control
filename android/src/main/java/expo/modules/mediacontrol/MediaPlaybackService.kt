@@ -123,7 +123,22 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     try {
-      MediaButtonReceiver.handleIntent(mediaSession, intent)
+      println("🤖 MediaPlaybackService onStartCommand called with action: ${intent?.action}")
+      
+      // Ensure MediaSession is initialized before handling any intents
+      if (!::mediaSession.isInitialized) {
+        println("🤖 MediaSession not initialized, initializing now...")
+        initializeMediaSession()
+      }
+      
+      // Handle media button events
+      if (intent?.action == Intent.ACTION_MEDIA_BUTTON) {
+        println("🤖 Processing MEDIA_BUTTON intent")
+        MediaButtonReceiver.handleIntent(mediaSession, intent)
+      } else if (intent != null) {
+        // Handle other intents (might be from MediaButtonReceiver)
+        MediaButtonReceiver.handleIntent(mediaSession, intent)
+      }
       
       // For Android O and above, we need to start foreground service
       // But only if we're not already in foreground
