@@ -7,13 +7,13 @@ import {
     MediaControlEvent,
     AudioInterruption,
     VolumeChange,
-    MediaMetadata
 } from 'expo-media-control';
 import { Platform } from "react-native";
 
 const UPDATE_INTERVAL = 500;
+const MAX_INITIALIZED_AUDIOS = 5; // limit the number of initialized audio players to avoid memory issues
 
-export class Audio {
+class Audio {
     id: string;
     title: string;
     album?: string;
@@ -30,6 +30,13 @@ export class Audio {
         this.onDurationChanged?.(this.id, duration);
     }
 
+    getDuration(): number {
+        return this.duration ?? this.player?.duration ?? 0;
+    }
+    getCurrentTime(): number {
+        return this.player?.currentTime ?? 0;
+    }
+
     onIsPlayingChanged?: (id: string, isPlaying: boolean) => void;
     onIsLoadingChanged?: (isLoading: boolean) => void;
 
@@ -42,7 +49,42 @@ export class Audio {
     onItemCompleted?: (id: string) => void;
     onItemChanged?: (newItem: Audio) => void;
 
-    player: AudioPlayer;
+    private player?: AudioPlayer;
+    initPlayer() {
+        if (!this.player) {
+            this.player = createAudioPlayer(this.url, {
+                updateInterval: UPDATE_INTERVAL,
+            });
+
+            this.player.addListener('playbackStatusUpdate', (status) => {
+                this.onIsPlayingChanged?.(this.id, status.playing);
+                this.setCurrentProgress(status.currentTime, status.duration);
+
+                if (status.isBuffering)
+                    this.onIsLoadingChanged?.(true);
+
+                if (status.isLoaded) {
+                    this.onIsLoadingChanged?.(false);
+                    this.setCurrentProgress(status.currentTime, status.duration);
+
+                    if (status.didJustFinish) {
+                        this.onItemCompleted?.(this.id);
+                    }
+                } else {
+                    if (status.reasonForWaitingToPlay) {
+                        console.log(`FATAL PLAYER ERROR: ${status.reasonForWaitingToPlay}`);
+                    }
+                }
+            });
+        }
+
+        return this.id;
+    }
+    releasePlayer() {
+        this.player?.removeAllListeners('playbackStatusUpdate');
+        this.player?.release();
+        this.player = undefined;
+    }
 
     next: Audio | null;
     prev: Audio | null;
@@ -54,32 +96,9 @@ export class Audio {
         this.album = album;
         this.albumTrackCount = albumTrackCount;
         this.trackNumber = trackNumber;
-        this.player = createAudioPlayer(url, {
-            updateInterval: UPDATE_INTERVAL
-        });
+
         this.next = null;
         this.prev = null;
-
-        this.player.addListener('playbackStatusUpdate', (status) => {
-            this.onIsPlayingChanged?.(this.id, status.playing);
-            this.setCurrentProgress(status.currentTime, status.duration);
-
-            if (status.isBuffering)
-                this.onIsLoadingChanged?.(true);
-
-            if (status.isLoaded) {
-                this.onIsLoadingChanged?.(false);
-                this.setCurrentProgress(status.currentTime, status.duration);
-
-                if (status.didJustFinish) {
-                    this.onItemCompleted?.(this.id);
-                }
-            } else {
-                if (status.reasonForWaitingToPlay) {
-                    console.log(`FATAL PLAYER ERROR: ${status.reasonForWaitingToPlay}`);
-                }
-            }
-        });
     }
 
     setNext(next: Audio) {
@@ -93,6 +112,10 @@ export class Audio {
     }
 
     setRate(rate: number) {
+        if (!this.player) {
+            throw new Error("Player not initialized");
+        }
+
         if (Platform.OS === "android") {
             this.player.shouldCorrectPitch = true;
             this.player.setPlaybackRate(rate);
@@ -103,6 +126,10 @@ export class Audio {
     }
 
     play(rate: number, startAt0: boolean = false) {
+        if (!this.player) {
+            throw new Error("Player not initialized");
+        }
+
         if (startAt0 || this.player.currentTime >= this.player.duration) {
             this.seekTo(0);
             this.onItemChanged?.(this);
@@ -113,21 +140,40 @@ export class Audio {
     }
 
     pause() {
+        if (!this.player) {
+            throw new Error("Player not initialized");
+        }
         this.player.pause();
     }
 
     stop() {
+        if (!this.player) {
+            throw new Error("Player not initialized");
+        }
         this.player.seekTo(0);
         this.player.pause();
     }
 
     seekTo(ratio: number) {
+        if (!this.player) {
+            throw new Error("Player not initialized");
+        }
         this.player.seekTo(this.player.duration * ratio);
     }
 
     // on destroy, release player
     destroy() {
-        this.player.release();
+        this.releasePlayer();
+        this.onIsPlayingChanged = undefined;
+        this.onIsLoadingChanged = undefined;
+        this.onProgressUpdated = undefined;
+        this.onItemCompleted = undefined;
+        this.onItemChanged = undefined;
+
+        this.next = null;
+        this.prev = null;
+
+        console.log(`Destroyed Audio: ${this.id} - ${this.url}`);
     }
 }
 
@@ -143,6 +189,29 @@ export class PlayerManager {
         return PlayerManager.instance;
     }
 
+    private initializedAudios: Audio[] = [];
+    private initPlayer(audio: Audio, nextBuffer?: number) {
+        console.log(`Request to init player for audio: ${audio.id}`);
+        // print current initialized audios number
+        console.log(`Currently initialized audios: ${this.initializedAudios.map(a => a.id).join(", ")}`);
+
+        if (this.initializedAudios.length >= MAX_INITIALIZED_AUDIOS) {
+            const audioToRelease = this.initializedAudios.shift();
+            audioToRelease?.releasePlayer();
+            console.log(`Released least recently used audio player: ${audioToRelease?.id}`);
+        }
+        if (!this.initializedAudios.includes(audio)) {
+            audio.initPlayer();
+            this.initializedAudios.push(audio);
+            console.log(`Initialized audio player: ${audio.id}`);
+        }
+
+        // pre-initialize next audio if specified recursively
+        if (nextBuffer && nextBuffer > 0 && audio.next) {
+            this.initPlayer(audio.next, nextBuffer - 1);
+        }
+    }
+
     private audios: Audio[] = [];
     private activeAudio: Audio | null = null;
     private setActiveAudio(audio: Audio) {
@@ -150,30 +219,18 @@ export class PlayerManager {
         this.activeAudio?.stop();
 
         this.activeAudio = audio;
+        this.initPlayer(this.activeAudio, 1);
+        // notify change
         this.onItemChanged?.(audio);
 
-        // Clean metadata before sending to native module
-        const metadata: MediaMetadata = {
-            title: audio.title || 'Unknown Title',
-            artist: audio.album || 'Unknown Artist',
-            album: audio.album || 'Unknown Album',
-        };
-
-        // Only add numeric values if they're valid
-        const duration = audio.duration ?? audio?.player?.duration;
-        if (typeof duration === 'number' && duration > 0) {
-            metadata.duration = duration;
-        }
-
-        if (typeof audio.albumTrackCount === 'number' && audio.albumTrackCount > 0) {
-            metadata.albumTrackCount = audio.albumTrackCount;
-        }
-
-        if (typeof audio.trackNumber === 'number' && audio.trackNumber > 0) {
-            metadata.trackNumber = audio.trackNumber;
-        }
-
-        MediaControl.updateMetadata(metadata).catch(error => {
+        MediaControl.updateMetadata({
+            title: audio.title,
+            duration: audio.getDuration(),
+            artist: audio.album,
+            album: audio.album,
+            albumTrackCount: audio.albumTrackCount,
+            trackNumber: audio.trackNumber,
+        }).catch(error => {
             console.error('Failed to update MediaControl metadata from setActiveAudio:', error);
         })
     }
@@ -192,12 +249,12 @@ export class PlayerManager {
     onIsPlayingChanged?: (id: string, isPlaying: boolean) => void;
     private setIsPlaying(isPlaying: boolean) {
         if (this.isPlaying !== isPlaying) {
-            MediaControl.updatePlaybackState(isPlaying ? PlaybackState.PLAYING : PlaybackState.PAUSED, this.activeAudio?.player.currentTime ?? 0).catch(error => {
+            MediaControl.updatePlaybackState(isPlaying ? PlaybackState.PLAYING : PlaybackState.PAUSED, this.activeAudio?.getCurrentTime() ?? 0).catch(error => {
                 console.error('Failed to update MediaControl playback state from isPlaying change:', error);
             });
         }
-
         this.isPlaying = isPlaying;
+
         if (this.activeAudio)
             this.onIsPlayingChanged?.(this.activeAudio.id, isPlaying);
     }
@@ -216,6 +273,9 @@ export class PlayerManager {
         if (this.activeAudio) {
             this.onProgressUpdated?.(this.activeAudio.id, currentTime, duration);
 
+            MediaControl.updatePlaybackState(this.isPlaying ? PlaybackState.PLAYING : PlaybackState.PAUSED, currentTime).catch(error => {
+                console.error('Failed to update MediaControl playback state from isPlaying change:', error);
+            });
         }
     }
 
@@ -280,7 +340,6 @@ export class PlayerManager {
             }
 
             audioItem.onIsPlayingChanged = (id, isPlaying) => {
-                // console.log(`Audio item isPlaying changed: ${id} - ${isPlaying}`);
                 if (this.activeAudio !== audioItem)
                     return;
                 this.setIsPlaying?.(isPlaying);
@@ -297,31 +356,22 @@ export class PlayerManager {
                 if (this.activeAudio !== audioItem)
                     return;
                 this.setCurrentProgress?.(currentTime, duration);
+
             };
 
             audioItem.onDurationChanged = (id, duration) => {
                 if (this.activeAudio !== audioItem)
                     return;
 
-                if (!duration || duration <= 0 || typeof duration !== 'number') return;
-
-                // Clean metadata before sending to native module
-                const metadata: MediaMetadata = {
-                    title: audioItem.title || 'Unknown Title',
+                if (!duration || duration <= 0) return;
+                MediaControl.updateMetadata({
+                    title: audioItem.title,
                     duration: duration,
-                    artist: audioItem.album || 'Unknown Artist',
-                    album: audioItem.album || 'Unknown Album',
-                };
-
-                if (typeof audioItem.albumTrackCount === 'number' && audioItem.albumTrackCount > 0) {
-                    metadata.albumTrackCount = audioItem.albumTrackCount;
-                }
-
-                if (typeof audioItem.trackNumber === 'number' && audioItem.trackNumber > 0) {
-                    metadata.trackNumber = audioItem.trackNumber;
-                }
-
-                MediaControl.updateMetadata(metadata).catch(error => {
+                    artist: audioItem.album,
+                    album: audioItem.album,
+                    albumTrackCount: audioItem.albumTrackCount,
+                    trackNumber: audioItem.trackNumber,
+                }).catch(error => {
                     console.error('Failed to update MediaControl metadata from duration update:', error);
                 });
             };
@@ -329,7 +379,11 @@ export class PlayerManager {
             audioItem.onItemCompleted = (id) => {
                 if (this.activeAudio !== audioItem)
                     return;
+                console.log(`Audio item completed: ${id}`);
+                const [_, resourceIdStr] = id.split(',');
+                const resourceId = parseInt(resourceIdStr);
                 this.onItemCompleted?.(audioItem.id);
+
                 this.skipNext();
             };
 
@@ -350,9 +404,19 @@ export class PlayerManager {
             this.setActiveAudio(this.audios[0]);
         }
 
-        if (autoStart) {
+        if (this.activeAudio)
+            this.initPlayer(this.activeAudio, MAX_INITIALIZED_AUDIOS / 2); // pre-initialize next few audios
+
+        if (autoStart)
             this.play();
-        }
+    }
+
+    getCurrentTime(): number {
+        return this.activeAudio?.getCurrentTime() ?? 0;
+    }
+
+    getDuration(): number {
+        return this.activeAudio?.getDuration() ?? 0;
     }
 
     async clearAudio() {
@@ -361,11 +425,15 @@ export class PlayerManager {
         }
         this.audios = [];
         this.activeAudio = null;
+        this.initializedAudios = [];
 
         console.log('Cleared audio:', this)
     }
 
     destroy() {
+        console.log("Destroying PlayerManager");
+        this.clearAudio();
+
         this._unregisterCommands();
         MediaControl.disableMediaControls();
     }
@@ -386,8 +454,6 @@ export class PlayerManager {
 
     stop() {
         this.activeAudio?.stop();
-        // this.setIsPlaying(false);
-        // this.setCurrentProgress(0, this.getDuration());
     }
 
     seekTo(ratio: number) {
@@ -404,14 +470,6 @@ export class PlayerManager {
         if (this.activeAudio?.prev) {
             this.changeItem(this.activeAudio.prev);
         }
-    }
-
-    getCurrentTime(): number {
-        return this.activeAudio?.player?.currentTime || 0;
-    }
-
-    getDuration(): number {
-        return this.activeAudio?.player?.duration || 0;
     }
 
     private changeItem(newItem: Audio) {
@@ -431,33 +489,19 @@ export class PlayerManager {
             console.log('📱 JS: Event command:', event.command);
             console.log('📱 JS: Event timestamp:', event.timestamp);
 
-            // return;
-
             // Handle different commands - delegate to PlayerManager with immediate responses
             switch (event.command) {
                 case Command.PLAY:
                     console.log('🎵 Remote PLAY command received');
-                    // Direct response for remote control - don't wait for React state updates
                     this.play();
-                    // // Update MediaControl state immediately
-                    // setTimeout(() => {
-                    //     this.play();
-                    // }, 200);
                     break;
                 case Command.PAUSE:
                     console.log('🎵 Remote PAUSE command received');
-                    // Direct response for remote control - don't wait for React state updates
                     this.pause();
-                    // Update MediaControl state immediately
-                    // setTimeout(() => {
-                    //     this.pause();
-                    // }, 200);
                     break;
                 case Command.STOP:
                     console.log('🎵 Remote STOP command received');
                     this.stop();
-
-                    // handleStop();
                     break;
                 case Command.NEXT_TRACK:
                     console.log('🎵 Remote NEXT_TRACK command received');
@@ -469,16 +513,16 @@ export class PlayerManager {
                     break;
                 case Command.SKIP_FORWARD:
                     // Skip forward by interval (convert seconds to ratio)
-                    const currentTime = this.activeAudio?.player?.currentTime || 0;
-                    const duration = this.activeAudio?.player?.duration || 1;
+                    const currentTime = this.activeAudio?.getCurrentTime() || 0;
+                    const duration = this.activeAudio?.getDuration() || 1;
                     const interval = event.data?.interval || 15;
                     const newPosition = Math.min(currentTime + interval, duration);
                     this.seekTo(newPosition / duration);
                     break;
                 case Command.SKIP_BACKWARD:
                     // Skip backward by interval (convert seconds to ratio)
-                    const currentTimeBack = this.activeAudio?.player?.currentTime || 0;
-                    const durationBack = this.activeAudio?.player?.duration || 1;
+                    const currentTimeBack = this.activeAudio?.getCurrentTime() || 0;
+                    const durationBack = this.activeAudio?.getDuration() || 1;
                     const intervalBack = event.data?.interval || 15;
                     const newPositionBack = Math.max(currentTimeBack - intervalBack, 0);
                     this.seekTo(newPositionBack / durationBack);
@@ -486,7 +530,7 @@ export class PlayerManager {
                 case Command.SEEK:
                     if (event.data?.position !== undefined) {
                         // Convert absolute position to ratio
-                        const seekDuration = this.activeAudio?.player?.duration || 1;
+                        const seekDuration = this.activeAudio?.getDuration() || 1;
                         this.seekTo(event.data.position / seekDuration);
                     }
                     break;

@@ -123,15 +123,36 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     try {
-      MediaButtonReceiver.handleIntent(mediaSession, intent)
+      println("🤖 MediaPlaybackService onStartCommand called with action: ${intent?.action}")
+      
+      // Ensure MediaSession is initialized before handling any intents
+      if (!::mediaSession.isInitialized) {
+        println("🤖 MediaSession not initialized, initializing now...")
+        initializeMediaSession()
+      }
+      
+      // Handle media button events
+      if (intent?.action == Intent.ACTION_MEDIA_BUTTON) {
+        println("🤖 Processing MEDIA_BUTTON intent")
+        MediaButtonReceiver.handleIntent(mediaSession, intent)
+      } else if (intent != null) {
+        // Handle other intents (might be from MediaButtonReceiver)
+        MediaButtonReceiver.handleIntent(mediaSession, intent)
+      }
       
       // For Android O and above, we need to start foreground service
-      // But only if we're not already in foreground
+      // But only if we're not already in foreground and if allowed
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !isForegroundService) {
-        val notification = createNotification()
-        startForeground(NOTIFICATION_ID, notification)
-        isForegroundService = true
-        println("🤖 Service started in foreground with notification")
+        try {
+          val notification = createNotification()
+          startForeground(NOTIFICATION_ID, notification)
+          isForegroundService = true
+          println("🤖 Service started in foreground with notification")
+        } catch (e: Exception) {
+          println("⚠️ Cannot start foreground service in onStartCommand: ${e.message}")
+          // Continue without foreground service - the service can still function for media controls
+          // The MediaSession will still work for system integration
+        }
       }
       
     } catch (e: Exception) {
@@ -205,9 +226,15 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
         
         // Only start foreground service if not already in foreground
         if (!isForegroundService) {
-          startForeground(NOTIFICATION_ID, createNotification())
-          isForegroundService = true
-          println("🤖 Service started in foreground")
+          try {
+            startForeground(NOTIFICATION_ID, createNotification())
+            isForegroundService = true
+            println("🤖 Service started in foreground")
+          } catch (e: Exception) {
+            println("⚠️ Failed to start foreground service in onPlay: ${e.message}")
+            // Continue without foreground service - update notification normally
+            updateNotification()
+          }
         } else {
           // Just update the existing notification
           updateNotification()
@@ -470,7 +497,18 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
               createNotification()
             }
             withContext(Dispatchers.Main) {
-              notificationManager.notify(NOTIFICATION_ID, notification)
+              if (isForegroundService) {
+                // Update foreground notification
+                notificationManager.notify(NOTIFICATION_ID, notification)
+              } else {
+                // Try to show as regular notification if not in foreground
+                try {
+                  notificationManager.notify(NOTIFICATION_ID, notification)
+                } catch (e: SecurityException) {
+                  println("⚠️ Cannot show notification: ${e.message}")
+                  // Service can still function without notifications
+                }
+              }
             }
           } catch (e: Exception) {
             println("❌ Error updating notification: ${e.message}")

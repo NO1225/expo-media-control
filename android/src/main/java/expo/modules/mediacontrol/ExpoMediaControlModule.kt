@@ -1,5 +1,6 @@
 package expo.modules.mediacontrol
 
+import android.app.ActivityManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -372,42 +373,98 @@ class ExpoMediaControlModule : Module() {
         throw Exception("React context is null")
       }
       
+      // Track if service binding fails
+      var serviceBindFailed = false
+      
       // Create and bind to MediaPlaybackService asynchronously to avoid ANR
       moduleScope.launch {
         try {
           val serviceIntent = Intent(context, MediaPlaybackService::class.java)
           
-          // Start the service first
+          // Attempt to start the service first - this ensures MediaButtonReceiver can find it
+          // Handle Android's background service restrictions gracefully
           withContext(Dispatchers.Main) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-              context.startForegroundService(serviceIntent)
-            } else {
-              context.startService(serviceIntent)
+            try {
+              if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                // Check if we can start foreground service
+                if (canStartForegroundService(context)) {
+                  context.startForegroundService(serviceIntent)
+                  println("🤖 Foreground service started successfully")
+                } else {
+                  println("⚠️ Cannot start foreground service, app may be in background - will bind only")
+                  // Don't start service, just bind - this prevents the crash
+                }
+              } else {
+                context.startService(serviceIntent)
+                println("🤖 Regular service started successfully")
+              }
+            } catch (e: SecurityException) {
+              println("⚠️ SecurityException starting service: ${e.message}")
+              // Continue with binding only - the service might still work
+            } catch (e: IllegalStateException) {
+              println("⚠️ IllegalStateException starting service: ${e.message}")
+              // Continue with binding only
+            } catch (e: Exception) {
+              println("⚠️ Exception starting service: ${e.message}")
+              // Continue with binding only
             }
           }
           
-          // Small delay to allow service to start
-          delay(100)
+          // Small delay to allow service to start and initialize its MediaSession  
+          delay(200)
           
           // Then bind to it for communication
-          withContext(Dispatchers.Main) {
-            val bindResult = context.bindService(serviceIntent, serviceConnection, Context.BIND_AUTO_CREATE)
+          // Use BIND_AUTO_CREATE to create the service if it wasn't started
+          val bindingSuccessful = withContext(Dispatchers.Main) {
+            val bindResult = context.bindService(
+              serviceIntent, 
+              serviceConnection, 
+              Context.BIND_AUTO_CREATE or Context.BIND_IMPORTANT
+            )
             if (!bindResult) {
-              println("❌ Failed to bind to MediaPlaybackService")
-              throw Exception("Failed to bind to MediaPlaybackService")
+              println("❌ Failed to bind to MediaPlaybackService with BIND_IMPORTANT, trying basic binding")
+              // Fallback to basic binding
+              val fallbackResult = context.bindService(
+                serviceIntent,
+                serviceConnection,
+                Context.BIND_AUTO_CREATE
+              )
+              if (!fallbackResult) {
+                println("❌ Failed to bind to MediaPlaybackService - media controls will not work")
+                false // Return false to indicate failure
+              } else {
+                println("🤖 Service binding initiated with fallback")
+                true // Return true to indicate success
+              }
+            } else {
+              println("🤖 Service binding initiated")
+              true // Return true to indicate success
             }
-            println("🤖 Service binding initiated")
           }
+          
+          // Only continue if binding was successful
+          if (bindingSuccessful) {
+            // Wait a bit more for service connection to complete
+            delay(100)
+            
+            // Initialize/get MediaSession from service
+            withContext(Dispatchers.Main) {
+              initializeMediaSession()
+            }
+          }
+          
         } catch (e: Exception) {
-          println("❌ Failed to start/bind service: ${e.message}")
-          throw e
+          println("❌ Failed to start/bind service: ${e.message} - media controls will not work")
+          // Don't throw or create fallback - just fail silently
+          serviceBindFailed = true
         }
       }
       
-      // Mark controls as enabled
-      isControlsEnabled = true
-      
-      println("🤖 Media controls enabled successfully with service")
+      // Only mark controls as enabled if service binding succeeded
+      if (!serviceBindFailed) {
+        isControlsEnabled = true
+        println("🤖 Media controls enabled successfully with service")
+      }
     } catch (e: Exception) {
       println("❌ Failed to enable media controls: ${e.message}")
       e.printStackTrace()
@@ -529,12 +586,12 @@ class ExpoMediaControlModule : Module() {
         currentMetadata.putAll(cleanMetadata)
       }
       
-      // Delegate to service if bound
-      if (isServiceBound) {
+      // Only update if service is bound
+      if (isServiceBound && mediaService != null) {
         mediaService?.updateMetadata(currentMetadata.toMap())
         println("🤖 Metadata updated via service: ${currentMetadata["title"]} - ${currentMetadata["artist"]}")
       } else {
-        println("⚠️ Service not bound, cannot update metadata")
+        println("⚠️ Service not bound, metadata update skipped")
       }
     } catch (e: Exception) {
       println("❌ Failed to update metadata: ${e.message}")
@@ -556,12 +613,12 @@ class ExpoMediaControlModule : Module() {
         currentPosition = (it * 1000).toLong() // Convert to milliseconds
       }
       
-      // Delegate to service if bound
-      if (isServiceBound) {
+      // Only update if service is bound
+      if (isServiceBound && mediaService != null) {
         mediaService?.updatePlaybackState(state, position)
         println("🤖 Playback state updated via service: $state, position: ${currentPosition}ms")
       } else {
-        println("⚠️ Service not bound, cannot update playback state")
+        println("⚠️ Service not bound, playback state update skipped")
       }
     } catch (e: Exception) {
       println("❌ Failed to update playback state: ${e.message}")
@@ -580,14 +637,13 @@ class ExpoMediaControlModule : Module() {
       currentPlaybackState = PLAYBACK_STATE_NONE
       currentPosition = 0L
       
-      // Reset via service if bound
-      if (isServiceBound) {
-        // Reset metadata and state via service
+      // Only reset if service is bound
+      if (isServiceBound && mediaService != null) {
         mediaService?.updateMetadata(emptyMap())
         mediaService?.updatePlaybackState(PLAYBACK_STATE_NONE, 0.0)
         println("🤖 Controls reset via service to initial state")
       } else {
-        println("⚠️ Service not bound, cannot reset controls")
+        println("⚠️ Service not bound, controls reset skipped")
       }
     } catch (e: Exception) {
       println("❌ Failed to reset controls: ${e.message}")
@@ -605,86 +661,30 @@ class ExpoMediaControlModule : Module() {
    * Initialize MediaSession with proper configuration
    * Sets up callbacks and prepares for media control handling
    */
+  /**
+   * Initialize MediaSession - Now using the service's MediaSession instead of creating our own
+   * This prevents conflicts with MediaButtonReceiver which expects one consistent MediaSession
+   */
   private fun initializeMediaSession() {
     try {
-      val context = appContext.reactContext
-      if (context == null) {
-        println("❌ React context is null, cannot initialize MediaSession")
-        return
+      // Wait for service to be bound and use its MediaSession
+      if (mediaService != null) {
+        mediaSession = mediaService!!.getMediaSession()
+        println("🤖 Using MediaSession from service")
+      } else {
+        println("⚠️ Service not yet bound, MediaSession will be initialized when service connects")
       }
-      
-      // Create MediaSession
-      mediaSession = MediaSessionCompat(context, TAG).apply {
-        // Set callback for handling media button events
-        setCallback(object : MediaSessionCompat.Callback() {
-          override fun onPlay() {
-            handleMediaCommand("play", null)
-          }
-
-          override fun onPause() {
-            handleMediaCommand("pause", null)
-          }
-
-          override fun onStop() {
-            handleMediaCommand("stop", null)
-          }
-
-          override fun onSkipToNext() {
-            handleMediaCommand("nextTrack", null)
-          }
-
-          override fun onSkipToPrevious() {
-            handleMediaCommand("previousTrack", null)
-          }
-
-          override fun onSeekTo(pos: Long) {
-            val data = mapOf("position" to (pos / 1000.0)) // Convert to seconds
-            handleMediaCommand("seek", data)
-          }
-
-          override fun onFastForward() {
-            val skipInterval = getSkipInterval()
-            val data = mapOf("interval" to skipInterval)
-            handleMediaCommand("skipForward", data)
-          }
-
-          override fun onRewind() {
-            val skipInterval = getSkipInterval()
-            val data = mapOf("interval" to skipInterval)
-            handleMediaCommand("skipBackward", data)
-          }
-
-          override fun onSetRating(rating: RatingCompat) {
-            val data = mapOf(
-              "rating" to rating.getRating(),
-              "type" to when (rating.ratingStyle) {
-                RatingCompat.RATING_HEART -> "heart"
-                RatingCompat.RATING_THUMB_UP_DOWN -> "thumbsUpDown"
-                RatingCompat.RATING_3_STARS -> "threeStars"
-                RatingCompat.RATING_4_STARS -> "fourStars"
-                RatingCompat.RATING_5_STARS -> "fiveStars"
-                RatingCompat.RATING_PERCENTAGE -> "percentage"
-                else -> "unknown"
-              }
-            )
-            handleMediaCommand("setRating", data)
-          }
-        })
-        
-        // Set session flags
-        setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS)
-        
-        // Activate the session
-        isActive = true
-      }
-      
-      println("🤖 MediaSession initialized successfully")
     } catch (e: Exception) {
       println("❌ Failed to initialize MediaSession: ${e.message}")
       e.printStackTrace()
-      throw e
     }
   }
+
+
+
+
+
+
 
   /**
    * Get supported playback actions based on configuration
@@ -744,139 +744,11 @@ class ExpoMediaControlModule : Module() {
     }
   }
 
-  /**
-   * Update or create media notification
-   * Builds and displays notification with current metadata and playback state
-   * Thread-safe: always executes on main thread with synchronized data access
-   */
-  private fun updateNotification() {
-    if (!isControlsEnabled || mediaSession == null) return
-    
-    // Ensure we're on the main thread for UI operations
-    if (Thread.currentThread() != Looper.getMainLooper().thread) {
-      moduleScope.launch(Dispatchers.Main) {
-        updateNotification()
-      }
-      return
-    }
-    
-    try {
-      val context = appContext.reactContext
-      val notifManager = notificationManager
-      
-      if (context == null || notifManager == null) {
-        println("❌ Context or NotificationManager is null, cannot update notification")
-        return
-      }
-      
-      val sessionToken = mediaSession!!.sessionToken
-      
-      // Take a synchronized snapshot of current state to avoid race conditions
-      val metadataSnapshot = synchronized(currentMetadata) { 
-        currentMetadata.toMap() 
-      }
-      val playbackStateSnapshot = currentPlaybackState
-      
-      // Create notification with media style using synchronized data
-      val builder = NotificationCompat.Builder(context, NOTIFICATION_CHANNEL_ID)
-        .setStyle(
-          MediaNotificationCompat.MediaStyle()
-            .setMediaSession(sessionToken)
-            .setShowActionsInCompactView() // No custom actions for now
-        )
-        .setContentTitle(metadataSnapshot["title"]?.toString() ?: "Unknown Title")
-        .setSmallIcon(getSmallIconResource())
-        .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-        .setPriority(NotificationCompat.PRIORITY_LOW)
-        .setOngoing(playbackStateSnapshot == PLAYBACK_STATE_PLAYING)
-        .setShowWhen(false)
-      
-      // Set artist only if provided
-      metadataSnapshot["artist"]?.toString()?.let { artist ->
-        if (artist.isNotBlank()) {
-          builder.setContentText(artist)
-        }
-      }
-      
-      // Set album only if provided  
-      metadataSnapshot["album"]?.toString()?.let { album ->
-        if (album.isNotBlank()) {
-          builder.setSubText(album)
-        }
-      }
-      
-      // Add actions based on current state (simplified for now)
-      addNotificationActions(builder)
-      
-      // Try to load and set artwork for notification
-      val artworkMap = metadataSnapshot["artwork"] as? Map<String, Any>
-      val artworkUri = artworkMap?.get("uri") as? String
-      if (artworkUri != null) {
-        moduleScope.launch(Dispatchers.IO) {
-          try {
-            val bitmap = loadArtwork(artworkUri)
-            withContext(Dispatchers.Main) {
-              try {
-                if (bitmap != null) {
-                  builder.setLargeIcon(bitmap)
-                  println("🤖 Notification artwork set: ${bitmap.width}x${bitmap.height}")
-                }
-                notifManager.notify(NOTIFICATION_ID, builder.build())
-              } catch (e: Exception) {
-                println("❌ Failed to update notification with artwork: ${e.message}")
-                // Try without artwork
-                try {
-                  notifManager.notify(NOTIFICATION_ID, builder.build())
-                } catch (e2: Exception) {
-                  println("❌ Failed to show notification at all: ${e2.message}")
-                }
-              }
-            }
-          } catch (e: Exception) {
-            println("❌ Failed to load notification artwork: ${e.message}")
-            withContext(Dispatchers.Main) {
-              try {
-                notifManager.notify(NOTIFICATION_ID, builder.build())
-              } catch (e2: Exception) {
-                println("❌ Failed to show notification: ${e2.message}")
-              }
-            }
-          }
-        }
-      } else {
-        try {
-          notifManager.notify(NOTIFICATION_ID, builder.build())
-        } catch (e: Exception) {
-          println("❌ Failed to show notification: ${e.message}")
-        }
-      }
-      
-      println("🤖 Notification updated successfully")
-    } catch (e: Exception) {
-      println("❌ Failed to update notification: ${e.message}")
-      e.printStackTrace()
-    }
-  }
 
-  /**
-   * Add action buttons to notification
-   * Adds appropriate action buttons based on current playback state
-   */
-  private fun addNotificationActions(builder: NotificationCompat.Builder) {
-    // For now, let's not add custom actions to avoid PendingIntent issues
-    // The MediaStyle notification will still show basic controls from the MediaSession
-    println("🤖 Notification actions skipped to prevent crashes")
-  }
+    
 
-  /**
-   * Create intent for media action
-   * Creates an intent that can be used for notification actions
-   */
-  private fun createMediaActionIntent(action: String): Intent {
-    return Intent("expo.modules.mediacontrol.MEDIA_ACTION").apply {
-      putExtra("action", action)
-    }
-  }
+
+
 
   /**
    * Get PendingIntent flags based on Android version
@@ -1147,6 +1019,34 @@ class ExpoMediaControlModule : Module() {
     } catch (e: Exception) {
       println("❌ Failed to load local artwork: ${e.message}")
       null
+    }
+  }
+
+
+
+  /**
+   * Check if we can start a foreground service based on current app state
+   */
+  private fun canStartForegroundService(context: Context): Boolean {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+      return true // No restrictions before Android O
+    }
+    
+    return try {
+      // Check if the app is in foreground or has recent user interaction
+      val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+      if (activityManager != null) {
+        val runningAppProcesses = activityManager.runningAppProcesses
+        runningAppProcesses?.any { processInfo ->
+          processInfo.processName == context.packageName && 
+          processInfo.importance == ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
+        } ?: false
+      } else {
+        false
+      }
+    } catch (e: Exception) {
+      println("⚠️ Error checking foreground service eligibility: ${e.message}")
+      false
     }
   }
 
