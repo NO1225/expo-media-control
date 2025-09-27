@@ -20,7 +20,7 @@ import {
 //   AudioInterruption,
 //   VolumeChange,
 // } from 'expo-media-control';
-import { PlayerManager, Audio } from './PlayerManager';
+import { PlayerManager } from './PlayerManager';
   const playerManager = PlayerManager.getInstance();
 
 /**
@@ -110,7 +110,7 @@ export default function App() {
       setTrackDuration(duration);
     };
     
-    playerManager.onItemChanged = (newItem: Audio) => {
+    playerManager.onItemChanged = (newItem) => {
       // Find the index of the new item and update UI
       const newIndex = sampleTracks.findIndex(track => track.id === newItem.id);
       if (newIndex >= 0) {
