@@ -1,5 +1,6 @@
 package expo.modules.mediacontrol
 
+import android.app.ActivityManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -377,26 +378,62 @@ class ExpoMediaControlModule : Module() {
         try {
           val serviceIntent = Intent(context, MediaPlaybackService::class.java)
           
-          // Start the service first - this ensures MediaButtonReceiver can find it
+          // Attempt to start the service first - this ensures MediaButtonReceiver can find it
+          // Handle Android's background service restrictions gracefully
           withContext(Dispatchers.Main) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-              context.startForegroundService(serviceIntent)
-            } else {
-              context.startService(serviceIntent)
+            try {
+              if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                // Check if we can start foreground service
+                if (canStartForegroundService(context)) {
+                  context.startForegroundService(serviceIntent)
+                  println("🤖 Foreground service started successfully")
+                } else {
+                  println("⚠️ Cannot start foreground service, app may be in background - will bind only")
+                  // Don't start service, just bind - this prevents the crash
+                }
+              } else {
+                context.startService(serviceIntent)
+                println("🤖 Regular service started successfully")
+              }
+            } catch (e: SecurityException) {
+              println("⚠️ SecurityException starting service: ${e.message}")
+              // Continue with binding only - the service might still work
+            } catch (e: IllegalStateException) {
+              println("⚠️ IllegalStateException starting service: ${e.message}")
+              // Continue with binding only
+            } catch (e: Exception) {
+              println("⚠️ Exception starting service: ${e.message}")
+              // Continue with binding only
             }
           }
           
-          // Small delay to allow service to start and initialize its MediaSession
+          // Small delay to allow service to start and initialize its MediaSession  
           delay(200)
           
           // Then bind to it for communication
+          // Use BIND_AUTO_CREATE to create the service if it wasn't started
           withContext(Dispatchers.Main) {
-            val bindResult = context.bindService(serviceIntent, serviceConnection, Context.BIND_AUTO_CREATE)
+            val bindResult = context.bindService(
+              serviceIntent, 
+              serviceConnection, 
+              Context.BIND_AUTO_CREATE or Context.BIND_IMPORTANT
+            )
             if (!bindResult) {
-              println("❌ Failed to bind to MediaPlaybackService")
-              throw Exception("Failed to bind to MediaPlaybackService")
+              println("❌ Failed to bind to MediaPlaybackService with BIND_IMPORTANT, trying basic binding")
+              // Fallback to basic binding
+              val fallbackResult = context.bindService(
+                serviceIntent,
+                serviceConnection,
+                Context.BIND_AUTO_CREATE
+              )
+              if (!fallbackResult) {
+                println("❌ Failed to bind to MediaPlaybackService with fallback")
+                throw Exception("Failed to bind to MediaPlaybackService")
+              }
+              println("🤖 Service binding initiated with fallback")
+            } else {
+              println("🤖 Service binding initiated")
             }
-            println("🤖 Service binding initiated")
           }
           
           // Wait a bit more for service connection to complete
@@ -1094,6 +1131,32 @@ class ExpoMediaControlModule : Module() {
     } catch (e: Exception) {
       println("❌ Failed to load local artwork: ${e.message}")
       null
+    }
+  }
+
+  /**
+   * Check if we can start a foreground service based on current app state
+   */
+  private fun canStartForegroundService(context: Context): Boolean {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+      return true // No restrictions before Android O
+    }
+    
+    return try {
+      // Check if the app is in foreground or has recent user interaction
+      val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+      if (activityManager != null) {
+        val runningAppProcesses = activityManager.runningAppProcesses
+        runningAppProcesses?.any { processInfo ->
+          processInfo.processName == context.packageName && 
+          processInfo.importance == ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
+        } ?: false
+      } else {
+        false
+      }
+    } catch (e: Exception) {
+      println("⚠️ Error checking foreground service eligibility: ${e.message}")
+      false
     }
   }
 
