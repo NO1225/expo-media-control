@@ -564,10 +564,40 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
   }
 
   private fun getSmallIconResource(): Int {
-    // Try to use app's launcher icon, fallback to system icon
+    // First try to get custom notification icon from metadata
     return try {
-      packageManager.getApplicationInfo(packageName, 0).icon
+      val appInfo = packageManager.getApplicationInfo(packageName, android.content.pm.PackageManager.GET_META_DATA)
+      val metaData = appInfo.metaData
+      
+      if (metaData != null) {
+        // Check for custom notification icon name from plugin configuration
+        val iconName = metaData.getString("expo.modules.mediacontrol.NOTIFICATION_ICON")
+        if (iconName != null) {
+          // Remove file extension and path if present
+          val cleanIconName = iconName.substringAfterLast("/").substringBeforeLast(".")
+          val resourceId = resources.getIdentifier(cleanIconName, "drawable", packageName)
+          if (resourceId != 0) {
+            println("🎵 Using custom notification icon: $cleanIconName (ID: $resourceId)")
+            return resourceId
+          } else {
+            println("⚠️ Custom notification icon '$cleanIconName' not found in drawable resources")
+          }
+        }
+      }
+      
+      // Fallback to app launcher icon if no custom icon specified
+      val launcherIcon = packageManager.getApplicationInfo(packageName, 0).icon
+      if (launcherIcon != 0) {
+        println("🎵 Using app launcher icon for notification")
+        return launcherIcon
+      }
+      
+      // Final fallback to system media icon
+      println("🎵 Using system default media icon")
+      android.R.drawable.ic_media_play
+      
     } catch (e: Exception) {
+      println("❌ Error getting notification icon: ${e.message}")
       android.R.drawable.ic_media_play
     }
   }
@@ -586,7 +616,13 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
       addAction(ACTION_SKIP_FORWARD)
       addAction(ACTION_SKIP_BACKWARD)
     }
-    registerReceiver(mediaActionReceiver, filter)
+    
+    // Register receiver with proper flags for Android 14+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+      registerReceiver(mediaActionReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+    } else {
+      registerReceiver(mediaActionReceiver, filter)
+    }
   }
 
   private fun sendEventToModule(command: String, data: Map<String, Any>?) {

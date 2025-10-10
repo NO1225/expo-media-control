@@ -224,6 +224,7 @@ export class PlayerManager {
         this.onItemChanged?.(audio);
 
         MediaControl.updateMetadata({
+
             title: audio.title,
             duration: audio.getDuration(),
             artist: audio.album,
@@ -304,7 +305,7 @@ export class PlayerManager {
                 Command.SEEK,
             ],
             notification: {
-                icon: 'ic_music_note',
+                // icon: 'ic_music_note',
                 color: '#2196F3',
                 showWhenClosed: true,
                 skipInterval: 15,

@@ -34,7 +34,8 @@
         {
           "enableBackgroundAudio": true,
           "audioSessionCategory": "playback",
-          "skipInterval": 15
+          "skipInterval": 15,
+          "notificationIcon": "./assets/favicon.png"
         }
       ],
       "expo-audio"

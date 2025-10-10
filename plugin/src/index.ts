@@ -3,8 +3,6 @@ import {
   withAndroidManifest,
   AndroidConfig,
   ConfigPlugin,
-  InfoPlist,
-  AndroidManifest,
 } from 'expo/config-plugins';
 
 /**
@@ -23,7 +21,25 @@ interface MediaControlOptions {
   };
   /** Skip interval in seconds for forward/backward commands */
   skipInterval?: number;
-  /** Custom notification icon name (Android) */
+  /** 
+   * Custom notification icon name (Android)
+   * 
+   * IMPORTANT: Android notification icons have specific requirements:
+   * - Must be monochrome (white/transparent only)
+   * - PNG icons with colors will appear as white circles
+   * - In Expo managed workflow, place icon in your assets folder
+   * - Reference by path relative to project root (e.g., "./assets/notification-icon.png")
+   * 
+   * For Expo managed workflow:
+   * 1. Create a white/transparent version of your icon
+   * 2. Save as PNG in your assets folder (e.g., "./assets/notification-icon.png")
+   * 3. Reference the path in this configuration
+   * 4. The plugin will handle copying it to the correct Android location during build
+   * 
+   * For bare workflow:
+   * 1. Place the monochrome icon in android/app/src/main/res/drawable/
+   * 2. Reference by filename without extension
+   */
   notificationIcon?: string;
 }
 
@@ -125,11 +141,29 @@ const withAndroidMediaControl: ConfigPlugin<MediaControlOptions> = (config, opti
 
     // Add custom notification icon if specified
     if (options.notificationIcon) {
+      // Extract filename without path and extension for Android resource naming
+      const iconName = options.notificationIcon
+        .split('/').pop() // Remove path
+        ?.split('.')[0]; // Remove extension
+      
       AndroidConfig.Manifest.addMetaDataItemToMainApplication(
         mainApplication,
         'expo.modules.mediacontrol.NOTIFICATION_ICON',
-        options.notificationIcon
+        iconName || 'notification_icon'
       );
+      
+      // Log guidance for notification icon setup
+      console.log(`
+📱 NOTIFICATION ICON CONFIGURED:
+Using "${options.notificationIcon}" as notification icon.
+
+✅ Make sure your icon is:
+- Monochrome (white/transparent only)
+- Located at: ${options.notificationIcon}
+- Will be processed as: ${iconName}
+
+If you see a white circle, your icon needs to be monochrome!
+      `);
     }
 
     return config;
