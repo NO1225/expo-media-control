@@ -137,7 +137,7 @@ public class ExpoMediaControlModule: Module {
     // =============================================
     
     /// Event fired when media control commands are received (play, pause, next, etc.)
-    Events("mediaControlEvent", "audioInterruption", "volumeChange")
+    Events("mediaControlEvent", "volumeChange")
   }
 
   // =============================================

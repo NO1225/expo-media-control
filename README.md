@@ -1,6 +1,19 @@
-# 📱 Expo Media Control
-
-A comprehensive, production-ready media control module for Expo and React Native applications. Provides seamless integration with system media controls including Control Center (iOS), lock screen controls, Android notifications, and remote control events with full TypeScript support.
+# 📱 Expo Media Con-- 🎵 **Compl- ⏯️ **Comprehensive Playback Controls** - Play, pause, stop, next, previous, seek, skip, and rating
+- 📢 **Background Audio Support** - Continue playback when app is backgrounded
+- 📳 **Volume Control Integration** - Monitor and respond to system volume changesMedia Session Management** - Full control over media playback state and metadata
+- � **Lock Screen Integration** - Native lock screen controls with artwork support
+- �📱 **Control Center & Notification Controls** - iOS Control Center and Android notification controls
+- 🎨 **Rich Artwork Display** - Support for local and remote artwork/album covers
+- ⏯️ **Comprehensive Playback Controls** - Play, pause, stop, next, previous, seek, skip, and rating
+- 📢 **Background Audio Support** - Continue playback when app is backgrounded
+- 📳 **Volume Control Integration** - Monitor and respond to system volume changes
+- 🎯 **Event-Driven Architecture** - React to user interactions with system controls
+- 🛠️ **Full TypeScript Support** - Complete type definitions and IntelliSense supportrol Center & Notification Controls** - iOS Control Center and Android notification controls
+- 🎨 **Rich Artwork Display** - Support for local and remote artwork/album covers
+- ⏯️ **Comprehensive Playback Controls** - Play, pause, stop, next, previous, seek, skip, and rating
+- 📢 **Background Audio Support** - Continue playback when app is backgrounded
+- 📳 **Volume Control Integration** - Monitor and respond to system volume changes
+- 🎯 **Event-Driven Architecture** - React to user interactions with system controls comprehensive, production-ready media control module for Expo and React Native applications. Provides seamless integration with system media controls including Control Center (iOS), lock screen controls, Android notifications, and remote control events with full TypeScript support.
 
 [![npm version](https://img.shields.io/npm/v/expo-media-control.svg)](https://www.npmjs.com/package/expo-media-control)
 [![Platform - Android and iOS](https://img.shields.io/badge/platform-Android%20%7C%20iOS-blue.svg)](https://github.com/NO1225/expo-media-control)
@@ -360,26 +373,6 @@ const removeListener = MediaControl.addListener((event: MediaControlEvent) => {
 removeListener();
 ```
 
-#### Audio Interruption Events
-
-```typescript
-const removeInterruptionListener = MediaControl.addAudioInterruptionListener(
-  (interruption: AudioInterruption) => {
-    if (interruption.type === 'begin') {
-      // Pause playback due to interruption
-      if (interruption.shouldResume) {
-        // Save state to resume later
-      }
-    } else if (interruption.type === 'end') {
-      // Resume playback if appropriate
-      if (interruption.shouldResume) {
-        // Resume playback
-      }
-    }
-  }
-);
-```
-
 #### Volume Change Events
 
 ```typescript
@@ -407,22 +400,6 @@ enum Command {
   VOLUME_UP = 'volumeUp',
   VOLUME_DOWN = 'volumeDown',
 }
-```
-
-#### `addAudioInterruptionListener(listener: AudioInterruptionListener): () => void`
-
-Adds a listener for audio interruption events (calls, notifications, etc.).
-
-```typescript
-const removeListener = MediaControl.addAudioInterruptionListener((interruption) => {
-  if (interruption.type === 'begin') {
-    // Audio interrupted - pause playback
-    pausePlayback();
-  } else if (interruption.type === 'end' && interruption.shouldResume) {
-    // Interruption ended - can resume playback
-    resumePlayback();
-  }
-});
 ```
 
 #### `addVolumeChangeListener(listener: VolumeChangeListener): () => void`
@@ -754,12 +731,6 @@ Configure the plugin in your `app.json`:
 2. Check that you've set metadata with `updateMetadata()`
 3. Verify the playback state is set correctly
 4. On iOS, ensure background audio capability is enabled
-
-#### Audio interruptions not working
-
-1. Verify audio session is configured properly
-2. Check that audio focus is requested on Android
-3. Ensure interruption listeners are set up before enabling controls
 
 #### Artwork not loading
 

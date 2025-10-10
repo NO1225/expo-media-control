@@ -288,7 +288,7 @@ class ExpoMediaControlModule : Module() {
     // =============================================
     
     /// Events that can be sent to JavaScript
-    Events("mediaControlEvent", "audioInterruption", "volumeChange")
+    Events("mediaControlEvent", "volumeChange")
     
     // =============================================
     // LIFECYCLE MANAGEMENT

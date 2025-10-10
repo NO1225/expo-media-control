@@ -284,15 +284,6 @@ export interface MediaControlEvent {
 }
 
 /**
- * Audio interruption information
- */
-export interface AudioInterruption {
-  type: 'begin' | 'end';
-  category?: string;
-  shouldResume?: boolean;
-}
-
-/**
  * Volume change information
  */
 export interface VolumeChange {
@@ -302,7 +293,6 @@ export interface VolumeChange {
 
 // Event listener types
 export type MediaControlEventListener = (event: MediaControlEvent) => void;
-export type AudioInterruptionListener = (interruption: AudioInterruption) => void;
 export type VolumeChangeListener = (change: VolumeChange) => void;
 
 // =============================================
@@ -377,11 +367,9 @@ console.log('📱 JS: Native module loaded:', nativeModule);
  */
 const eventListeners: {
   mediaControl: MediaControlEventListener[];
-  audioInterruption: AudioInterruptionListener[];
   volumeChange: VolumeChangeListener[];
 } = {
   mediaControl: [],
-  audioInterruption: [],
   volumeChange: [],
 };
 
@@ -410,7 +398,6 @@ class ExtendedExpoMediaControlModule {
 
       // Add native event listeners
       (nativeModule as any).addListener('mediaControlEvent', this._dispatchMediaControlEvent);
-      (nativeModule as any).addListener('audioInterruptionEvent', this._dispatchAudioInterruptionEvent);
       (nativeModule as any).addListener('volumeChangeEvent', this._dispatchVolumeChangeEvent);
     } catch (error) {
       if (error instanceof ValidationError) {
@@ -437,7 +424,6 @@ class ExtendedExpoMediaControlModule {
 
       // Remove all native event listeners
       (nativeModule as any).removeAllListeners('mediaControlEvent');
-      (nativeModule as any).removeAllListeners('audioInterruptionEvent');
       (nativeModule as any).removeAllListeners('volumeChangeEvent');
     } catch (error) {
       console.error('Failed to disable media controls:', error);
@@ -451,6 +437,7 @@ class ExtendedExpoMediaControlModule {
    */
   updateMetadata = async (metadata: MediaMetadata): Promise<void> => {
     try {
+      console.log('📱 JS: Updating metadata:', JSON.stringify(metadata, null, 2));
       // Validate input
       validateMetadata(metadata);
 
@@ -583,24 +570,6 @@ class ExtendedExpoMediaControlModule {
   };
 
   /**
-   * Add listener for audio interruption events (calls, notifications)
-   * These events help manage audio focus and playback interruptions
-   * @param listener Function to call when audio interruptions occur
-   * @returns Function to remove the listener
-   */
-  addAudioInterruptionListener = (listener: AudioInterruptionListener): (() => void) => {
-    eventListeners.audioInterruption.push(listener);
-    
-    // Return removal function
-    return () => {
-      const index = eventListeners.audioInterruption.indexOf(listener);
-      if (index > -1) {
-        eventListeners.audioInterruption.splice(index, 1);
-      }
-    };
-  };
-
-  /**
    * Add listener for volume change events
    * These events are triggered when system volume changes
    * @param listener Function to call when volume changes
@@ -625,7 +594,6 @@ class ExtendedExpoMediaControlModule {
    */
   removeAllListeners = async (): Promise<void> => {
     eventListeners.mediaControl.length = 0;
-    eventListeners.audioInterruption.length = 0;
     eventListeners.volumeChange.length = 0;
   };
 
@@ -646,20 +614,6 @@ class ExtendedExpoMediaControlModule {
         listener(event);
       } catch (error) {
         console.error('Error in media control event listener:', error);
-      }
-    });
-  };
-
-  /**
-   * Internal method to dispatch audio interruption events
-   * This will be called by the native modules when interruptions occur
-   */
-  _dispatchAudioInterruptionEvent = (interruption: AudioInterruption): void => {
-    eventListeners.audioInterruption.forEach(listener => {
-      try {
-        listener(interruption);
-      } catch (error) {
-        console.error('Error in audio interruption event listener:', error);
       }
     });
   };

@@ -5,7 +5,6 @@ import {
     PlaybackState,
     Command,
     MediaControlEvent,
-    AudioInterruption,
     VolumeChange,
 } from 'expo-media-control';
 import { Platform } from "react-native";
@@ -21,6 +20,7 @@ class Audio {
     trackNumber?: number;
     url: string;
     duration?: number;
+    artWork?: string;
     onDurationChanged?: (id: string, duration: number) => void;
     private setDuration(duration: number) {
         // if not changed, ignore
@@ -89,12 +89,13 @@ class Audio {
     next: Audio | null;
     prev: Audio | null;
 
-    constructor(id: string, url: string, title: string, album?: string, albumTrackCount?: number, trackNumber?: number) {
+    constructor(id: string, url: string, title: string, album?: string, albumTrackCount?: number, trackNumber?: number, artWork?: string) {
         this.id = id;
         this.url = url;
         this.title = title;
         this.album = album;
         this.albumTrackCount = albumTrackCount;
+        this.artWork = artWork;
         this.trackNumber = trackNumber;
 
         this.next = null;
@@ -223,6 +224,7 @@ export class PlayerManager {
         // notify change
         this.onItemChanged?.(audio);
 
+        console.log(`Active audio set: ${audio.id} - ${audio.artWork}`);
         MediaControl.updateMetadata({
             title: audio.title,
             duration: audio.getDuration(),
@@ -230,6 +232,11 @@ export class PlayerManager {
             album: audio.album,
             albumTrackCount: audio.albumTrackCount,
             trackNumber: audio.trackNumber,
+            artwork: audio.artWork? {
+                uri: audio.artWork,
+                width: 512,
+                height:512
+            }: undefined,
         }).catch(error => {
             console.error('Failed to update MediaControl metadata from setActiveAudio:', error);
         })
@@ -326,11 +333,17 @@ export class PlayerManager {
         album?: string;
         albumTrackCount?: number;
         trackNumber?: number;
+        artWork?: string;
     }[], autoStart: boolean, startWithId?: string) {
         this.clearAudio();
 
-        this.audios = playList.map(item => new Audio(item.id, item.url, item.title, item.album, item.albumTrackCount, item.trackNumber));
-
+        this.audios = playList.map(item => new Audio(item.id, item.url, item.title, item.album, item.albumTrackCount, item.trackNumber, item.artWork));
+        console.log(`Loaded playlist with ${this.audios.length} items`);
+        // log all the audio infos 
+        console.log('Playlist items:');
+        playList.forEach(audio => {
+            console.log(`- ID: ${audio.id}, Title: ${audio.title}, URL: ${audio.url}, Album: ${audio.album}, Track#: ${audio.trackNumber}, ArtWork: ${audio.artWork}`);
+        });
         for (let i = 0; i < this.audios.length; i++) {
             const audioItem = this.audios[i];
 
@@ -363,6 +376,7 @@ export class PlayerManager {
                     return;
 
                 if (!duration || duration <= 0) return;
+                console.log(`Active audio set: ${audioItem.id} - ${audioItem.artWork}`);
                 MediaControl.updateMetadata({
                     title: audioItem.title,
                     duration: duration,
@@ -370,6 +384,11 @@ export class PlayerManager {
                     album: audioItem.album,
                     albumTrackCount: audioItem.albumTrackCount,
                     trackNumber: audioItem.trackNumber,
+                    artwork: audioItem.artWork? {
+                        uri: audioItem.artWork,
+                        width: 512,
+                        height:512
+                    }: undefined,
                 }).catch(error => {
                     console.error('Failed to update MediaControl metadata from duration update:', error);
                 });
@@ -477,7 +496,6 @@ export class PlayerManager {
     }
 
     private _removeListenersListener: (() => void) | null = null;
-    private _removeInterruptionListener: (() => void) | null = null;
     private _removeVolumeListener: (() => void) | null = null;
     private _registerCommands() {
         // Set up media control event listener
@@ -539,18 +557,6 @@ export class PlayerManager {
             }
         });
 
-        this._removeInterruptionListener?.();
-        // Set up audio interruption listener
-        this._removeInterruptionListener = MediaControl.addAudioInterruptionListener((interruption: AudioInterruption) => {
-            console.log('🔊 Audio Interruption:', interruption);
-            if (interruption.type === 'begin') {
-                this.pause();
-            } else if (interruption.type === 'end' && interruption.shouldResume) {
-                // Resume playback if appropriate
-                this.play();
-            }
-        });
-
         // Set up volume change listener
         this._removeVolumeListener = MediaControl.addVolumeChangeListener((change: VolumeChange) => {
             console.log('🔊 Volume Change:', change);
@@ -563,9 +569,6 @@ export class PlayerManager {
         console.log('📱 JS: Removing media control event listener');
         this._removeListenersListener?.();
         this._removeListenersListener = null;
-
-        this._removeInterruptionListener?.();
-        this._removeInterruptionListener = null;
 
         this._removeVolumeListener?.();
         this._removeVolumeListener = null;

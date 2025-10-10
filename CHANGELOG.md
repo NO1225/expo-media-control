@@ -14,15 +14,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Removed `android.requestAudioFocus` option - audio focus should be managed by media player, not control UI
 
 ### 🗑️ Removed
-- **Dead Code Elimination** - Removed ~280 lines of unused code for better maintainability
+- **Dead Code Elimination** - Removed ~330 lines of unused/unimplemented code for better maintainability
   - Removed audio focus management code (~150 lines) - this is a control UI module, not a media player
   - Removed unused helper methods: `getPlaybackActions()`, `getSkipInterval()`, artwork loading methods (~130 lines)
   - Removed unused imports: `Bitmap`, `BitmapFactory`, `URL`, `PlaybackStateCompat` (partial)
+  - Removed `addAudioInterruptionListener()` API (~50 lines) - was declared but never implemented, misleading to users
+  - Removed `AudioInterruption` interface and related types
   
 ### 📚 Documentation
-- Clarified that audio focus should be handled by media player (expo-audio, react-native-video, etc.)
+- Clarified that audio focus and interruption handling should be done by media player (expo-audio, react-native-video, etc.)
+- Removed misleading API documentation for unimplemented `addAudioInterruptionListener()`
 - Updated README to distinguish between build-time (plugin) and runtime (enableMediaControls) configuration
 - Improved documentation for configuration options and their purposes
+- Removed "Audio Interruption Handling" from feature list
 
 ### 🎯 Architecture
 - **Clearer Separation of Concerns** - Module now focuses solely on media control UI, not playback logic
