@@ -67,6 +67,9 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
   private var currentPlaybackState = PlaybackStateCompat.STATE_NONE
   private var currentPosition = 0L
   
+  // Configuration options
+  private var skipInterval = 15.0 // Default 15 seconds
+  
   // Notification management
   private val notificationManager: NotificationManager by lazy {
     getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -303,7 +306,6 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
 
     override fun onFastForward() {
       try {
-        val skipInterval = 15.0 // Default 15 seconds, could be configurable
         val data = mapOf("interval" to skipInterval)
         sendEventToModule("skipForward", data)
       } catch (e: Exception) {
@@ -313,7 +315,6 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
 
     override fun onRewind() {
       try {
-        val skipInterval = 15.0 // Default 15 seconds, could be configurable
         val data = mapOf("interval" to skipInterval)
         sendEventToModule("skipBackward", data)
       } catch (e: Exception) {
@@ -345,6 +346,13 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
   // =============================================
   // Public Interface for Module Integration
   // =============================================
+
+  fun updateConfiguration(config: Map<String, Any>) {
+    config["skipInterval"]?.let {
+      skipInterval = (it as? Number)?.toDouble() ?: 15.0
+      println("🤖 MediaPlaybackService: Skip interval updated to $skipInterval seconds")
+    }
+  }
 
   fun updateMetadata(metadata: Map<String, Any>) {
     val builder = MediaMetadataCompat.Builder()

@@ -7,20 +7,15 @@ import {
 
 /**
  * Configuration options for the Expo Media Control plugin
+ * 
+ * Note: This plugin config is only for build-time configuration.
+ * Runtime media control options should be passed to enableMediaControls().
  */
 interface MediaControlOptions {
   /** Enable background audio modes (iOS) */
   enableBackgroundAudio?: boolean;
   /** Audio session category for iOS */
   audioSessionCategory?: string;
-  /** Android notification channel configuration */
-  notificationChannel?: {
-    name?: string;
-    description?: string;
-    importance?: 'low' | 'default' | 'high';
-  };
-  /** Skip interval in seconds for forward/backward commands */
-  skipInterval?: number;
   /** 
    * Custom notification icon name (Android)
    * 
@@ -75,11 +70,6 @@ const withIOSMediaControl: ConfigPlugin<MediaControlOptions> = (config, options 
       'AVAudioSessionCategoryOptionAllowBluetoothA2DP'
     ];
 
-    // Configure skip intervals for remote commands
-    if (options.skipInterval) {
-      infoPlist['MediaControlSkipInterval'] = options.skipInterval;
-    }
-
     return config;
   });
 
@@ -108,36 +98,6 @@ const withAndroidMediaControl: ConfigPlugin<MediaControlOptions> = (config, opti
 
     // Get the main application
     const mainApplication = AndroidConfig.Manifest.getMainApplicationOrThrow(androidManifest);
-
-    // Add metadata for notification configuration
-    if (options.notificationChannel) {
-      AndroidConfig.Manifest.addMetaDataItemToMainApplication(
-        mainApplication,
-        'expo.modules.mediacontrol.NOTIFICATION_CHANNEL_NAME',
-        options.notificationChannel.name || 'Media Control'
-      );
-
-      AndroidConfig.Manifest.addMetaDataItemToMainApplication(
-        mainApplication,
-        'expo.modules.mediacontrol.NOTIFICATION_CHANNEL_DESCRIPTION',
-        options.notificationChannel.description || 'Controls for media playback'
-      );
-
-      AndroidConfig.Manifest.addMetaDataItemToMainApplication(
-        mainApplication,
-        'expo.modules.mediacontrol.NOTIFICATION_CHANNEL_IMPORTANCE',
-        options.notificationChannel.importance || 'low'
-      );
-    }
-
-    // Add skip interval configuration
-    if (options.skipInterval) {
-      AndroidConfig.Manifest.addMetaDataItemToMainApplication(
-        mainApplication,
-        'expo.modules.mediacontrol.SKIP_INTERVAL',
-        options.skipInterval.toString()
-      );
-    }
 
     // Add custom notification icon if specified
     if (options.notificationIcon) {

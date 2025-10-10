@@ -1,51 +1,34 @@
 package expo.modules.mediacontrol
 
 import android.app.ActivityManager
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.media.AudioAttributes
-import android.media.AudioFocusRequest
-import android.media.AudioManager
-import android.net.Uri
 import android.os.Build
 import android.os.IBinder
-import android.os.Looper
-import android.support.v4.media.MediaBrowserCompat
-import android.support.v4.media.MediaMetadataCompat
-import android.support.v4.media.RatingCompat
 import android.support.v4.media.session.MediaSessionCompat
-import android.support.v4.media.session.PlaybackStateCompat
-import androidx.core.app.NotificationCompat
-import androidx.media.app.NotificationCompat as MediaNotificationCompat
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import expo.modules.kotlin.Promise
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
-import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Expo Media Control Module for Android
  * 
- * This module provides comprehensive media control functionality for Android applications,
- * including MediaSessionCompat integration, notification management, audio focus handling,
- * and background service support. It handles system media controls, lock screen integration,
- * and remote control events.
+ * This module provides media control functionality for Android applications through
+ * MediaSessionCompat integration and background service support. It handles system media
+ * controls, lock screen integration, and remote control events.
+ * 
+ * Note: This module serves as a bridge between JavaScript and the MediaPlaybackService.
+ * All media playback, notification management, and artwork loading is handled by the service.
  */
 class ExpoMediaControlModule : Module() {
   // =============================================
@@ -71,6 +54,12 @@ class ExpoMediaControlModule : Module() {
         // Apply any pending metadata or state updates
         moduleScope.launch {
           try {
+            // Update configuration
+            val androidConfig = controlOptions["android"] as? Map<String, Any>
+            if (androidConfig != null) {
+              mediaService?.updateConfiguration(androidConfig)
+            }
+            
             if (currentMetadata.isNotEmpty()) {
               mediaService?.updateMetadata(currentMetadata.toMap())
             }
@@ -129,32 +118,6 @@ class ExpoMediaControlModule : Module() {
   
   /// Configuration options for the media controls
   private var controlOptions: MutableMap<String, Any> = ConcurrentHashMap()
-  
-  /// Audio manager for handling audio focus
-  private val audioManager: AudioManager? by lazy {
-    try {
-      appContext.reactContext?.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-    } catch (e: Exception) {
-      println("❌ Failed to get AudioManager: ${e.message}")
-      null
-    }
-  }
-  
-  /// Notification manager for showing media notifications
-  private val notificationManager: NotificationManager? by lazy {
-    try {
-      appContext.reactContext?.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
-    } catch (e: Exception) {
-      println("❌ Failed to get NotificationManager: ${e.message}")
-      null
-    }
-  }
-  
-  /// Audio focus request for Android O and above
-  private var audioFocusRequest: AudioFocusRequest? = null
-  
-  /// Whether we currently have audio focus
-  private var hasAudioFocus: Boolean = false
   
   /// Coroutine scope for managing async operations with proper lifecycle
   private var moduleScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -658,10 +621,6 @@ class ExpoMediaControlModule : Module() {
   // =============================================
 
   /**
-   * Initialize MediaSession with proper configuration
-   * Sets up callbacks and prepares for media control handling
-   */
-  /**
    * Initialize MediaSession - Now using the service's MediaSession instead of creating our own
    * This prevents conflicts with MediaButtonReceiver which expects one consistent MediaSession
    */
@@ -680,349 +639,9 @@ class ExpoMediaControlModule : Module() {
     }
   }
 
-
-
-
-
-
-
-  /**
-   * Get supported playback actions based on configuration
-   * Returns the actions that should be available in the media controls
-   */
-  private fun getPlaybackActions(): Long {
-    var actions = PlaybackStateCompat.ACTION_PLAY_PAUSE or
-                 PlaybackStateCompat.ACTION_STOP or
-                 PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
-                 PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS or
-                 PlaybackStateCompat.ACTION_SEEK_TO
-    
-    // Add skip actions if configured
-    val capabilities = (controlOptions["capabilities"] as? List<*>)?.map { it.toString() }
-    if (capabilities?.contains("skipForward") == true) {
-      actions = actions or PlaybackStateCompat.ACTION_FAST_FORWARD
-    }
-    if (capabilities?.contains("skipBackward") == true) {
-      actions = actions or PlaybackStateCompat.ACTION_REWIND
-    }
-    if (capabilities?.contains("setRating") == true) {
-      actions = actions or PlaybackStateCompat.ACTION_SET_RATING
-    }
-    
-    return actions
-  }
-
-  // =============================================
-  // NOTIFICATION MANAGEMENT
-  // Methods for creating and updating media notifications
-  // =============================================
-
-  /**
-   * Create notification channel for Android O and above
-   * Sets up the notification channel with proper importance and settings
-   */
-  private fun createNotificationChannel() {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-      val notifManager = notificationManager
-      if (notifManager == null) {
-        println("❌ NotificationManager is null, cannot create channel")
-        return
-      }
-      
-      val channel = NotificationChannel(
-        NOTIFICATION_CHANNEL_ID,
-        "Media Control",
-        NotificationManager.IMPORTANCE_LOW
-      ).apply {
-        description = "Controls for media playback"
-        setShowBadge(false)
-        setSound(null, null)
-      }
-      
-      notifManager.createNotificationChannel(channel)
-      println("🤖 Notification channel created")
-    }
-  }
-
-
-    
-
-
-
-
-  /**
-   * Get PendingIntent flags based on Android version
-   * Returns appropriate flags for PendingIntent creation
-   */
-  private fun getPendingIntentFlags(): Int {
-    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-      PendingIntent.FLAG_IMMUTABLE
-    } else {
-      PendingIntent.FLAG_UPDATE_CURRENT
-    }
-  }
-
-  /**
-   * Get small icon resource ID
-   * Returns the resource ID for the notification small icon
-   */
-  private fun getSmallIconResource(): Int {
-    val context = appContext.reactContext
-    if (context == null) {
-      println("❌ React context is null, using default icon")
-      return android.R.drawable.ic_media_play
-    }
-    
-    val notificationConfig = controlOptions["notification"] as? Map<String, Any>
-    val iconName = notificationConfig?.get("icon") as? String
-    
-    return if (iconName != null) {
-      try {
-        val resourceId = context.resources.getIdentifier(iconName, "drawable", context.packageName)
-        if (resourceId != 0) resourceId else android.R.drawable.ic_media_play
-      } catch (e: Exception) {
-        println("❌ Failed to find icon resource: $iconName")
-        android.R.drawable.ic_media_play // Fallback
-      }
-    } else {
-      android.R.drawable.ic_media_play // Default icon
-    }
-  }
-
-  // =============================================
-  // AUDIO FOCUS MANAGEMENT
-  // Methods for requesting and managing audio focus
-  // =============================================
-
-  /**
-   * Check if audio focus should be requested
-   * Returns whether audio focus management is enabled in configuration
-   */
-  private fun shouldRequestAudioFocus(): Boolean {
-    val androidConfig = controlOptions["android"] as? Map<String, Any>
-    return androidConfig?.get("requestAudioFocus") as? Boolean ?: true
-  }
-
-  /**
-   * Request audio focus for media playback
-   * Requests audio focus using the appropriate API for the Android version
-   */
-  private fun requestAudioFocus() {
-    if (hasAudioFocus) return
-    
-    val audioMgr = audioManager
-    if (audioMgr == null) {
-      println("❌ AudioManager is null, cannot request audio focus")
-      return
-    }
-    
-    val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-      val attributes = AudioAttributes.Builder()
-        .setUsage(AudioAttributes.USAGE_MEDIA)
-        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-        .build()
-      
-      audioFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-        .setAudioAttributes(attributes)
-        .setOnAudioFocusChangeListener(audioFocusChangeListener)
-        .build()
-      
-      audioMgr.requestAudioFocus(audioFocusRequest!!)
-    } else {
-      @Suppress("DEPRECATION")
-      audioMgr.requestAudioFocus(
-        audioFocusChangeListener,
-        AudioManager.STREAM_MUSIC,
-        AudioManager.AUDIOFOCUS_GAIN
-      )
-    }
-    
-    hasAudioFocus = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
-    if (hasAudioFocus) {
-      println("🤖 Audio focus granted")
-    } else {
-      println("❌ Audio focus denied")
-    }
-  }
-
-  /**
-   * Release audio focus
-   * Releases any held audio focus
-   */
-  private fun releaseAudioFocus() {
-    if (!hasAudioFocus) return
-    
-    val audioMgr = audioManager
-    if (audioMgr == null) {
-      println("❌ AudioManager is null, cannot release audio focus")
-      return
-    }
-    
-    val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && audioFocusRequest != null) {
-      audioMgr.abandonAudioFocusRequest(audioFocusRequest!!)
-    } else {
-      @Suppress("DEPRECATION")
-      audioMgr.abandonAudioFocus(audioFocusChangeListener)
-    }
-    
-    hasAudioFocus = false
-    audioFocusRequest = null
-    
-    if (result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
-      println("🤖 Audio focus released")
-    }
-  }
-
-  /**
-   * Audio focus change listener
-   * Handles changes in audio focus and sends appropriate events
-   */
-  private val audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
-    when (focusChange) {
-      AudioManager.AUDIOFOCUS_LOSS -> {
-        // Permanent loss of audio focus - pause playback
-        sendEvent("audioInterruption", mapOf(
-          "type" to "begin",
-          "category" to "unknown",
-          "shouldResume" to false
-        ))
-      }
-      AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
-        // Temporary loss of audio focus - pause but can resume
-        sendEvent("audioInterruption", mapOf(
-          "type" to "begin", 
-          "category" to "transient",
-          "shouldResume" to true
-        ))
-      }
-      AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
-        // Can continue playing at lower volume
-        sendEvent("audioInterruption", mapOf(
-          "type" to "begin",
-          "category" to "duck",
-          "shouldResume" to true
-        ))
-      }
-      AudioManager.AUDIOFOCUS_GAIN -> {
-        // Audio focus regained
-        sendEvent("audioInterruption", mapOf(
-          "type" to "end",
-          "shouldResume" to true
-        ))
-      }
-    }
-  }
-
   // =============================================
   // UTILITY METHODS
-  // Helper methods for configuration and artwork handling
   // =============================================
-
-  /**
-   * Get skip interval from configuration
-   * Returns the configured skip interval or default value
-   */
-  private fun getSkipInterval(): Double {
-    val androidConfig = controlOptions["android"] as? Map<String, Any>
-    return (androidConfig?.get("skipInterval") as? Number)?.toDouble() ?: 15.0
-  }
-
-  /**
-   * Load artwork from URI asynchronously
-   * Handles both local and remote artwork loading with proper error handling
-   * This method is now async to prevent ANR when loading remote images
-   */
-  private suspend fun loadArtwork(uri: String): Bitmap? {
-    return try {
-      withContext(Dispatchers.IO) {
-        if (uri.startsWith("http://") || uri.startsWith("https://")) {
-          // Load remote image on IO thread
-          loadRemoteArtwork(uri)
-        } else {
-          // Load local image on IO thread
-          loadLocalArtwork(uri)
-        }
-      }
-    } catch (e: Exception) {
-      println("❌ Failed to load artwork: ${e.message}")
-      null
-    }
-  }
-
-  /**
-   * Load artwork from remote URL
-   * Downloads and processes remote artwork images with timeout and error handling
-   * Now runs on IO thread to prevent ANRs
-   */
-  private fun loadRemoteArtwork(uri: String): Bitmap? {
-    return try {
-      println("🤖 Loading remote artwork: $uri")
-      val url = URL(uri)
-      val connection = url.openConnection()
-      connection.doInput = true
-      connection.connectTimeout = 3000 // 3 second timeout (reduced from 10)
-      connection.readTimeout = 3000    // 3 second read timeout (reduced from 10)
-      connection.connect()
-      val inputStream = connection.getInputStream()
-      val bitmap = BitmapFactory.decodeStream(inputStream)
-      inputStream.close()
-      
-      if (bitmap != null) {
-        println("🤖 Remote artwork loaded successfully: ${bitmap.width}x${bitmap.height}")
-      } else {
-        println("❌ Remote artwork decode returned null")
-      }
-      
-      bitmap
-    } catch (e: Exception) {
-      println("❌ Failed to load remote artwork from $uri: ${e.message}")
-      e.printStackTrace()
-      null
-    }
-  }
-
-  /**
-   * Load artwork from local file or assets
-   * Loads artwork from local file system or app assets
-   */
-  private fun loadLocalArtwork(uri: String): Bitmap? {
-    val context = appContext.reactContext
-    if (context == null) {
-      println("❌ React context is null, cannot load local artwork")
-      return null
-    }
-    
-    return try {
-      when {
-        uri.startsWith("file://") -> {
-          // Load from file system
-          val filePath = uri.substring(7) // Remove "file://" prefix
-          BitmapFactory.decodeFile(filePath)
-        }
-        uri.startsWith("asset://") -> {
-          // Load from assets
-          val assetPath = uri.substring(8) // Remove "asset://" prefix
-          val inputStream = context.assets.open(assetPath)
-          BitmapFactory.decodeStream(inputStream)
-        }
-        else -> {
-          // Try to load as resource
-          val resourceId = context.resources.getIdentifier(uri, "drawable", context.packageName)
-          if (resourceId != 0) {
-            BitmapFactory.decodeResource(context.resources, resourceId)
-          } else {
-            // Try direct file path
-            BitmapFactory.decodeFile(uri)
-          }
-        }
-      }
-    } catch (e: Exception) {
-      println("❌ Failed to load local artwork: ${e.message}")
-      null
-    }
-  }
-
-
 
   /**
    * Check if we can start a foreground service based on current app state

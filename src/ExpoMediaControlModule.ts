@@ -254,6 +254,9 @@ export interface MediaMetadata {
 
 /**
  * Configuration options for media controls
+ * 
+ * Note: Audio focus management should be handled by your media player,
+ * not by this control module.
  */
 export interface MediaControlOptions {
   capabilities?: Command[];
@@ -262,13 +265,12 @@ export interface MediaControlOptions {
     largeIcon?: MediaArtwork;
     color?: string;
     showWhenClosed?: boolean;
-    skipInterval?: number;
   };
   ios?: {
     skipInterval?: number;
   };
   android?: {
-    requestAudioFocus?: boolean;
+    skipInterval?: number;
   };
 }
 

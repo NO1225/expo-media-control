@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### 🔧 Changed
+- **Configuration Cleanup** - Removed redundant configuration options for clearer API
+  - Removed `skipInterval` from plugin config (build-time) - now only configurable at runtime via `enableMediaControls()`
+  - Removed unused `notificationChannel` from plugin config
+  - Removed `android.requestAudioFocus` option - audio focus should be managed by media player, not control UI
+
+### 🗑️ Removed
+- **Dead Code Elimination** - Removed ~280 lines of unused code for better maintainability
+  - Removed audio focus management code (~150 lines) - this is a control UI module, not a media player
+  - Removed unused helper methods: `getPlaybackActions()`, `getSkipInterval()`, artwork loading methods (~130 lines)
+  - Removed unused imports: `Bitmap`, `BitmapFactory`, `URL`, `PlaybackStateCompat` (partial)
+  
+### 📚 Documentation
+- Clarified that audio focus should be handled by media player (expo-audio, react-native-video, etc.)
+- Updated README to distinguish between build-time (plugin) and runtime (enableMediaControls) configuration
+- Improved documentation for configuration options and their purposes
+
+### 🎯 Architecture
+- **Clearer Separation of Concerns** - Module now focuses solely on media control UI, not playback logic
+- **Reduced from 828 to 687 lines** in main Android module (17% reduction)
+- **More maintainable** - Less code to maintain, clearer responsibilities
+
 ## [1.0.0] - 2024-12-20
 
 ### 🎉 Initial Release
@@ -37,14 +61,12 @@ This is the first stable release of `expo-media-control`, a comprehensive media 
 - Media notification with custom actions and artwork
 - Lock screen controls with MediaSessionCompat
 - Android Auto support (automatic)
-- Audio focus management with automatic handling
 - Hardware media button support
 - MediaBrowserCompat for enhanced system integration
 - Background service support for continuous playback
 
 #### Advanced Features
 - **Event-Driven Architecture** - React to user interactions with system controls
-- **Audio Focus Management** - Proper audio focus handling for Android with automatic pause/resume
 - **Audio Interruption Handling** - Graceful handling of calls, notifications, and other interruptions
 - **Volume Control Integration** - Monitor and respond to system volume changes
 - **Background Audio Support** - Continue playback when app is backgrounded
@@ -138,21 +160,6 @@ Perfect for:
 - Full source code available on GitHub
 - MIT license for commercial and open source use
 - Semantic versioning for predictable updates
-
----
-
-## [Unreleased]
-
-### 🔄 Planned Features
-
-- Web platform support for Expo Web
-- Additional audio session categories
-- Enhanced CarPlay integration
-- Advanced notification actions
-- Playlist management support
-- Audio streaming optimization
-- Enhanced error reporting and analytics
-- Performance monitoring tools
 
 ---
 

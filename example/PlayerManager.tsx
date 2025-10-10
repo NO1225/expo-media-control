@@ -304,16 +304,15 @@ export class PlayerManager {
                 Command.SEEK,
             ],
             notification: {
-                // icon: 'ic_music_note',
+                // icon: 'ic_music_note', // For bare workflow only
                 color: '#2196F3',
                 showWhenClosed: true,
-                skipInterval: 15,
             },
             ios: {
                 skipInterval: 15,
             },
             android: {
-                requestAudioFocus: true,
+                skipInterval: 15,
             },
         });
 
