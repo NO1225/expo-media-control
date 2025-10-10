@@ -6,6 +6,13 @@ A comprehensive, production-ready media control module for Expo and React Native
 [![Platform - Android and iOS](https://img.shields.io/badge/platform-Android%20%7C%20iOS-blue.svg)](https://github.com/NO1225/expo-media-control)
 [![MIT license](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/NO1225/expo-media-control/blob/main/LICENSE)
 
+> **⚠️ UNDER ACTIVE DEVELOPMENT**  
+> This module is currently under rapid development. While we strive to maintain stability, breaking changes may occur between versions. Please:
+> - Pin your version in `package.json`
+> - Check the [CHANGELOG](./CHANGELOG.md) before updating
+> - Report issues on [GitHub](https://github.com/NO1225/expo-media-control/issues)
+> - Join discussions for upcoming features and changes
+
 ## ✨ Features
 
 - 🎵 **Complete Media Session Management** - Full control over media playback state and metadata
@@ -29,6 +36,8 @@ yarn add expo-media-control
 # or
 pnpm install expo-media-control
 ```
+
+> **💡 Tip**: Pin your version in `package.json` during active development to avoid unexpected breaking changes. For example: `"expo-media-control": "~0.1.0"`
 
 ### Configuration
 
@@ -57,9 +66,11 @@ Add the plugin to your `app.json` or `app.config.js`:
 |--------|------|---------|-------------|
 | `enableBackgroundAudio` | `boolean` | `true` | Enable background audio modes (iOS) |
 | `audioSessionCategory` | `string` | `"playback"` | Audio session category for iOS |
-| `notificationIcon` | `string` | `undefined` | Custom notification icon path for Android (build-time) |
+| `notificationIcon` | `string` | `undefined` | Path to custom notification icon for Android (e.g., `"./assets/notification-icon.png"`) - see [Custom Icon Guide](./CUSTOM_NOTIFICATION_ICON.md) |
 
 **Note:** The plugin configuration is for **build-time** setup only. Runtime configuration (like `skipInterval`, notification appearance, etc.) should be passed to `enableMediaControls()`. See [API Reference](#api-reference) below.
+
+**💡 Custom Notification Icon:** Android requires monochrome (white on transparent) icons for notifications. See our [detailed guide](./CUSTOM_NOTIFICATION_ICON.md) on creating and using custom icons.
 ```
 
 ## 🏃‍♂️ Quick Start
@@ -222,9 +233,9 @@ Enables media controls with specified configuration.
 interface MediaControlOptions {
   capabilities?: Command[];
   notification?: {
-    icon?: string;              // Runtime notification icon (bare workflow)
+    icon?: string;              // Notification icon resource name (bare workflow only - use plugin config for managed workflow)
     largeIcon?: MediaArtwork;   // Large icon for rich notifications
-    color?: string;             // Notification accent color
+    color?: string;             // Notification accent color (Android)
     showWhenClosed?: boolean;   // Keep notification when app closes
   };
   ios?: {
@@ -238,7 +249,10 @@ interface MediaControlOptions {
 await MediaControl.enableMediaControls({
   capabilities: [Command.PLAY, Command.PAUSE, Command.NEXT_TRACK],
   notification: {
-    icon: 'ic_music_note',      // For bare workflow runtime customization
+    // Note: For managed workflow, set icon in app.json plugin config instead
+    // icon: 'ic_music_note',   // Bare workflow only: reference existing drawable resource
+    color: '#1976D2',
+  },
     color: '#1976D2',
   },
   ios: {
@@ -722,9 +736,13 @@ Configure the plugin in your `app.json`:
 
 **Plugin Configuration Notes:**
 - **Build-time only**: Plugin config is processed during build, not at runtime
+- **notificationIcon**: 
+  - **Managed workflow**: Use `"./assets/notification-icon.png"` - plugin copies it during prebuild
+  - **Bare workflow**: Reference existing drawable resource by name (e.g., `"ic_notification"`)
+  - **Requirements**: Must be monochrome (white on transparent) - see [Custom Icon Guide](./CUSTOM_NOTIFICATION_ICON.md)
+  - **Default**: If not specified, a music note icon is created automatically
 - **skipInterval**: Configure via `enableMediaControls()` options instead
-- **notificationIcon**: For Expo managed workflow (build-time setup)
-- **Runtime config**: Use `notification.icon` in `enableMediaControls()` for bare workflow
+- **Runtime icon**: Use `notification.icon` in `enableMediaControls()` only for bare workflow runtime changes
 
 ## 🐛 Troubleshooting
 

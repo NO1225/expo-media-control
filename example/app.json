@@ -34,7 +34,6 @@
         {
           "enableBackgroundAudio": true,
           "audioSessionCategory": "playback",
-          "skipInterval": 15,
           "notificationIcon": "./assets/favicon.png"
         }
       ],

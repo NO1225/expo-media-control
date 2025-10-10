@@ -593,15 +593,31 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
         }
       }
       
-      // Fallback to app launcher icon if no custom icon specified
-      val launcherIcon = packageManager.getApplicationInfo(packageName, 0).icon
-      if (launcherIcon != 0) {
-        println("🎵 Using app launcher icon for notification")
-        return launcherIcon
+      // Try standard notification icon names
+      val standardIconNames = listOf(
+        "ic_notification",
+        "notification_icon",
+        "ic_stat_notification",
+        "ic_media_notification"
+      )
+      
+      for (iconName in standardIconNames) {
+        val resourceId = resources.getIdentifier(iconName, "drawable", packageName)
+        if (resourceId != 0) {
+          println("🎵 Using standard notification icon: $iconName")
+          return resourceId
+        }
+      }
+      
+      // Try mipmap resources for launcher icon
+      val mipmapIcon = resources.getIdentifier("ic_launcher", "mipmap", packageName)
+      if (mipmapIcon != 0) {
+        println("🎵 Using mipmap launcher icon for notification")
+        return mipmapIcon
       }
       
       // Final fallback to system media icon
-      println("🎵 Using system default media icon")
+      println("⚠️ No custom icon found, using system default media icon")
       android.R.drawable.ic_media_play
       
     } catch (e: Exception) {
