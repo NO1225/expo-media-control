@@ -8,10 +8,8 @@ export {
   MediaMetadata,
   MediaControlOptions,
   MediaControlEvent,
-  AudioInterruption,
   VolumeChange,
   MediaControlEventListener,
-  AudioInterruptionListener,
   VolumeChangeListener,
   // Error types
   MediaControlError,
@@ -40,7 +38,6 @@ export interface ExpoMediaControlInterface {
   
   // Event handling methods
   addListener: typeof ExpoMediaControlModule.addListener;
-  addAudioInterruptionListener: typeof ExpoMediaControlModule.addAudioInterruptionListener;
   addVolumeChangeListener: typeof ExpoMediaControlModule.addVolumeChangeListener;
   removeAllListeners: typeof ExpoMediaControlModule.removeAllListeners;
   
@@ -65,7 +62,6 @@ export const MediaControl: ExpoMediaControlInterface = {
   updatePlaybackState: ExpoMediaControlModule.updatePlaybackState,
   resetControls: ExpoMediaControlModule.resetControls,
   addListener: ExpoMediaControlModule.addListener,
-  addAudioInterruptionListener: ExpoMediaControlModule.addAudioInterruptionListener,
   addVolumeChangeListener: ExpoMediaControlModule.addVolumeChangeListener,
   removeAllListeners: ExpoMediaControlModule.removeAllListeners,
   isEnabled: ExpoMediaControlModule.isEnabled,
@@ -81,7 +77,6 @@ export const {
   updatePlaybackState,
   resetControls,
   addListener,
-  addAudioInterruptionListener,
   addVolumeChangeListener,
   removeAllListeners,
   isEnabled,
