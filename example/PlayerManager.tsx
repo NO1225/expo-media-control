@@ -304,16 +304,15 @@ export class PlayerManager {
                 Command.SEEK,
             ],
             notification: {
-                icon: 'ic_music_note',
+                // icon: 'ic_music_note', // For bare workflow only
                 color: '#2196F3',
                 showWhenClosed: true,
-                skipInterval: 15,
             },
             ios: {
                 skipInterval: 15,
             },
             android: {
-                requestAudioFocus: true,
+                skipInterval: 15,
             },
         });
 
@@ -411,14 +410,6 @@ export class PlayerManager {
             this.play();
     }
 
-    getCurrentTime(): number {
-        return this.activeAudio?.getCurrentTime() ?? 0;
-    }
-
-    getDuration(): number {
-        return this.activeAudio?.getDuration() ?? 0;
-    }
-
     async clearAudio() {
         for (const audio of this.audios) {
             audio.destroy();
@@ -470,6 +461,14 @@ export class PlayerManager {
         if (this.activeAudio?.prev) {
             this.changeItem(this.activeAudio.prev);
         }
+    }
+
+    getCurrentTime(): number {
+        return this.activeAudio?.getCurrentTime() ?? 0;
+    }
+    
+    getDuration(): number {
+        return this.activeAudio?.getDuration() ?? 0;
     }
 
     private changeItem(newItem: Audio) {

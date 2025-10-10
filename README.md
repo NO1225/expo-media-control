@@ -6,6 +6,13 @@ A comprehensive, production-ready media control module for Expo and React Native
 [![Platform - Android and iOS](https://img.shields.io/badge/platform-Android%20%7C%20iOS-blue.svg)](https://github.com/NO1225/expo-media-control)
 [![MIT license](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/NO1225/expo-media-control/blob/main/LICENSE)
 
+> **⚠️ UNDER ACTIVE DEVELOPMENT**  
+> This module is currently under rapid development. While we strive to maintain stability, breaking changes may occur between versions. Please:
+> - Pin your version in `package.json`
+> - Check the [CHANGELOG](./CHANGELOG.md) before updating
+> - Report issues on [GitHub](https://github.com/NO1225/expo-media-control/issues)
+> - Join discussions for upcoming features and changes
+
 ## ✨ Features
 
 - 🎵 **Complete Media Session Management** - Full control over media playback state and metadata
@@ -13,8 +20,7 @@ A comprehensive, production-ready media control module for Expo and React Native
 - 📱 **Control Center & Notification Controls** - iOS Control Center and Android notification controls
 - 🎨 **Rich Artwork Display** - Support for local and remote artwork/album covers
 - ⏯️ **Comprehensive Playback Controls** - Play, pause, stop, next, previous, seek, skip, and rating
-- 🔊 **Audio Focus Management** - Proper audio focus handling for Android
-- 📢 **Background Audio Support** - Continue playback when app is backgrounded
+-  **Background Audio Support** - Continue playback when app is backgrounded
 - 🔔 **Audio Interruption Handling** - Graceful handling of calls, notifications, and interruptions
 - 📳 **Volume Control Integration** - Monitor and respond to system volume changes
 - 🎯 **Event-Driven Architecture** - React to user interactions with system controls
@@ -31,6 +37,8 @@ yarn add expo-media-control
 pnpm install expo-media-control
 ```
 
+> **💡 Tip**: Pin your version in `package.json` during active development to avoid unexpected breaking changes. For example: `"expo-media-control": "~0.1.0"`
+
 ### Configuration
 
 Add the plugin to your `app.json` or `app.config.js`:
@@ -44,12 +52,7 @@ Add the plugin to your `app.json` or `app.config.js`:
         {
           "enableBackgroundAudio": true,
           "audioSessionCategory": "playback",
-          "skipInterval": 15,
-          "notificationChannel": {
-            "name": "Media Playback",
-            "description": "Controls for media playback",
-            "importance": "low"
-          }
+          "notificationIcon": "./assets/notification-icon.png"
         }
       ]
     ]
@@ -63,17 +66,11 @@ Add the plugin to your `app.json` or `app.config.js`:
 |--------|------|---------|-------------|
 | `enableBackgroundAudio` | `boolean` | `true` | Enable background audio modes (iOS) |
 | `audioSessionCategory` | `string` | `"playback"` | Audio session category for iOS |
-| `skipInterval` | `number` | `15` | Skip interval in seconds for forward/backward |
-| `notificationChannel` | `object` | See below | Android notification channel configuration |
-| `notificationIcon` | `string` | `undefined` | Custom notification icon name (Android) |
+| `notificationIcon` | `string` | `undefined` | Path to custom notification icon for Android (e.g., `"./assets/notification-icon.png"`) - see [Custom Icon Guide](./CUSTOM_NOTIFICATION_ICON.md) |
 
-**Notification Channel Options:**
-```typescript
-{
-  name?: string;        // Channel name (default: "Media Control")
-  description?: string; // Channel description
-  importance?: 'low' | 'default' | 'high'; // Channel importance
-}
+**Note:** The plugin configuration is for **build-time** setup only. Runtime configuration (like `skipInterval`, notification appearance, etc.) should be passed to `enableMediaControls()`. See [API Reference](#api-reference) below.
+
+**💡 Custom Notification Icon:** Android requires monochrome (white on transparent) icons for notifications. See our [detailed guide](./CUSTOM_NOTIFICATION_ICON.md) on creating and using custom icons.
 ```
 
 ## 🏃‍♂️ Quick Start
@@ -236,31 +233,33 @@ Enables media controls with specified configuration.
 interface MediaControlOptions {
   capabilities?: Command[];
   notification?: {
-    icon?: string;
-    largeIcon?: MediaArtwork;
-    color?: string;
-    showWhenClosed?: boolean;
-    skipInterval?: number;
+    icon?: string;              // Notification icon resource name (bare workflow only - use plugin config for managed workflow)
+    largeIcon?: MediaArtwork;   // Large icon for rich notifications
+    color?: string;             // Notification accent color (Android)
+    showWhenClosed?: boolean;   // Keep notification when app closes
   };
   ios?: {
-    skipInterval?: number;
+    skipInterval?: number;      // Skip interval in seconds (default: 15)
   };
   android?: {
-    requestAudioFocus?: boolean;
+    skipInterval?: number;      // Skip interval in seconds (default: 15)
   };
 }
 
 await MediaControl.enableMediaControls({
   capabilities: [Command.PLAY, Command.PAUSE, Command.NEXT_TRACK],
   notification: {
-    icon: 'ic_music_note',
+    // Note: For managed workflow, set icon in app.json plugin config instead
+    // icon: 'ic_music_note',   // Bare workflow only: reference existing drawable resource
+    color: '#1976D2',
+  },
     color: '#1976D2',
   },
   ios: {
     skipInterval: 15,
   },
   android: {
-    requestAudioFocus: true,
+    skipInterval: 15,
   },
 });
 ```
@@ -677,17 +676,16 @@ interface MediaMetadata {
 interface MediaControlOptions {
   capabilities?: Command[];          // Enabled commands
   notification?: {                   // Android notification config
-    icon?: string;                   // Small icon resource name
+    icon?: string;                   // Small icon resource name (bare workflow)
     largeIcon?: MediaArtwork;        // Large icon (artwork)
     color?: string;                  // Background color
     showWhenClosed?: boolean;        // Show when app closed
-    skipInterval?: number;           // Skip interval in seconds
   };
   ios?: {                           // iOS-specific config
-    skipInterval?: number;           // Skip interval in seconds
+    skipInterval?: number;           // Skip interval in seconds (default: 15)
   };
   android?: {                       // Android-specific config
-    requestAudioFocus?: boolean;     // Request audio focus
+    skipInterval?: number;           // Skip interval in seconds (default: 15)
   };
 }
 ```
@@ -707,10 +705,11 @@ interface MediaControlOptions {
 
 - **MediaSession Integration** - Native Android MediaSession support
 - **Notification Controls** - Rich media notifications with custom actions
-- **Audio Focus Management** - Proper audio focus handling for interruptions
 - **Lock Screen Controls** - Media controls on Android lock screen
 - **Bluetooth Integration** - Works with Bluetooth headphones and car systems
 - **Android Auto Support** - Compatible with Android Auto
+
+> **Note:** Audio focus management should be handled by your media player (e.g., expo-audio, react-native-video), not by this control module. This module only provides the UI controls.
 
 ## 🔧 Configuration Options
 
@@ -727,19 +726,23 @@ Configure the plugin in your `app.json`:
         {
           "enableBackgroundAudio": true,
           "audioSessionCategory": "playback",
-          "skipInterval": 15,
-          "notificationChannel": {
-            "name": "Music Player",
-            "description": "Media playback controls",
-            "importance": "low"
-          },
-          "notificationIcon": "ic_music_note"
+          "notificationIcon": "./assets/notification-icon.png"
         }
       ]
     ]
   }
 }
 ```
+
+**Plugin Configuration Notes:**
+- **Build-time only**: Plugin config is processed during build, not at runtime
+- **notificationIcon**: 
+  - **Managed workflow**: Use `"./assets/notification-icon.png"` - plugin copies it during prebuild
+  - **Bare workflow**: Reference existing drawable resource by name (e.g., `"ic_notification"`)
+  - **Requirements**: Must be monochrome (white on transparent) - see [Custom Icon Guide](./CUSTOM_NOTIFICATION_ICON.md)
+  - **Default**: If not specified, a music note icon is created automatically
+- **skipInterval**: Configure via `enableMediaControls()` options instead
+- **Runtime icon**: Use `notification.icon` in `enableMediaControls()` only for bare workflow runtime changes
 
 ## 🐛 Troubleshooting
 

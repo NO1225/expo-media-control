@@ -67,6 +67,9 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
   private var currentPlaybackState = PlaybackStateCompat.STATE_NONE
   private var currentPosition = 0L
   
+  // Configuration options
+  private var skipInterval = 15.0 // Default 15 seconds
+  
   // Notification management
   private val notificationManager: NotificationManager by lazy {
     getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -303,7 +306,6 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
 
     override fun onFastForward() {
       try {
-        val skipInterval = 15.0 // Default 15 seconds, could be configurable
         val data = mapOf("interval" to skipInterval)
         sendEventToModule("skipForward", data)
       } catch (e: Exception) {
@@ -313,7 +315,6 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
 
     override fun onRewind() {
       try {
-        val skipInterval = 15.0 // Default 15 seconds, could be configurable
         val data = mapOf("interval" to skipInterval)
         sendEventToModule("skipBackward", data)
       } catch (e: Exception) {
@@ -345,6 +346,13 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
   // =============================================
   // Public Interface for Module Integration
   // =============================================
+
+  fun updateConfiguration(config: Map<String, Any>) {
+    config["skipInterval"]?.let {
+      skipInterval = (it as? Number)?.toDouble() ?: 15.0
+      println("🤖 MediaPlaybackService: Skip interval updated to $skipInterval seconds")
+    }
+  }
 
   fun updateMetadata(metadata: Map<String, Any>) {
     val builder = MediaMetadataCompat.Builder()
@@ -564,10 +572,56 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
   }
 
   private fun getSmallIconResource(): Int {
-    // Try to use app's launcher icon, fallback to system icon
+    // First try to get custom notification icon from metadata
     return try {
-      packageManager.getApplicationInfo(packageName, 0).icon
+      val appInfo = packageManager.getApplicationInfo(packageName, android.content.pm.PackageManager.GET_META_DATA)
+      val metaData = appInfo.metaData
+      
+      if (metaData != null) {
+        // Check for custom notification icon name from plugin configuration
+        val iconName = metaData.getString("expo.modules.mediacontrol.NOTIFICATION_ICON")
+        if (iconName != null) {
+          // Remove file extension and path if present
+          val cleanIconName = iconName.substringAfterLast("/").substringBeforeLast(".")
+          val resourceId = resources.getIdentifier(cleanIconName, "drawable", packageName)
+          if (resourceId != 0) {
+            println("🎵 Using custom notification icon: $cleanIconName (ID: $resourceId)")
+            return resourceId
+          } else {
+            println("⚠️ Custom notification icon '$cleanIconName' not found in drawable resources")
+          }
+        }
+      }
+      
+      // Try standard notification icon names
+      val standardIconNames = listOf(
+        "ic_notification",
+        "notification_icon",
+        "ic_stat_notification",
+        "ic_media_notification"
+      )
+      
+      for (iconName in standardIconNames) {
+        val resourceId = resources.getIdentifier(iconName, "drawable", packageName)
+        if (resourceId != 0) {
+          println("🎵 Using standard notification icon: $iconName")
+          return resourceId
+        }
+      }
+      
+      // Try mipmap resources for launcher icon
+      val mipmapIcon = resources.getIdentifier("ic_launcher", "mipmap", packageName)
+      if (mipmapIcon != 0) {
+        println("🎵 Using mipmap launcher icon for notification")
+        return mipmapIcon
+      }
+      
+      // Final fallback to system media icon
+      println("⚠️ No custom icon found, using system default media icon")
+      android.R.drawable.ic_media_play
+      
     } catch (e: Exception) {
+      println("❌ Error getting notification icon: ${e.message}")
       android.R.drawable.ic_media_play
     }
   }
@@ -586,7 +640,13 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
       addAction(ACTION_SKIP_FORWARD)
       addAction(ACTION_SKIP_BACKWARD)
     }
-    registerReceiver(mediaActionReceiver, filter)
+    
+    // Register receiver with proper flags for Android 14+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+      registerReceiver(mediaActionReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+    } else {
+      registerReceiver(mediaActionReceiver, filter)
+    }
   }
 
   private fun sendEventToModule(command: String, data: Map<String, Any>?) {
