@@ -21,8 +21,35 @@ import {
 //   VolumeChange,
 // } from 'expo-media-control';
 import { PlayerManager } from './PlayerManager';
-  const playerManager = PlayerManager.getInstance();
+const playerManager = PlayerManager.getInstance();
 
+// Sample tracks for demonstration
+const sampleTracks = [
+  {
+    id: '1',
+    title: 'Test Artwork Track',
+    artist: 'RadDy Questions',
+    album: 'Logo Test Album',
+    artWork: 'https://images.unsplash.com/photo-1752496134012-0836f4917b99?ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&q=80&w=2065',
+    url: 'https://dl.espressif.com/dl/audio/ff-16b-2c-44100hz.mp3'
+  },
+  {
+    id: '2',
+    title: 'Nature Sounds',
+    artist: 'SoundJay',
+    album: 'Free Audio Samples',
+    artWork: 'https://images.unsplash.com/photo-1752403045690-f1f0001f15d9?ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&q=80&w=681',
+    url: 'https://download.samplelib.com/mp3/sample-15s.mp3'
+  },
+  {
+    id: '3',
+    title: 'Piano Sample',
+    artist: 'Demo Artist',
+    album: 'Demo Album',
+    artWork: 'https://images.unsplash.com/photo-1752409487629-5459053b07d3?ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&q=80&w=687',
+    url: 'https://download.samplelib.com/mp3/sample-15s.mp3'
+  }
+];
 /**
  * Comprehensive Example App for Expo Media Control
  * 
@@ -38,112 +65,85 @@ export default function App() {
   // =============================================
   // STATE MANAGEMENT
   // =============================================
-  
+
   const [isEnabled, setIsEnabled] = useState(true);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentPosition, setCurrentPosition] = useState(0);
   const [volume, setVolume] = useState(1.0);
   const [lastEvent, setLastEvent] = useState<string>('No events yet');
-  
+
   // Track metadata state
   const [trackTitle, setTrackTitle] = useState('Sample Track');
   const [trackArtist, setTrackArtist] = useState('Sample Artist');
   const [trackAlbum, setTrackAlbum] = useState('Sample Album');
   const [trackDuration, setTrackDuration] = useState(180); // 3 minutes
   const [showArtwork, setShowArtwork] = useState(true);
-  
-  // Sample tracks for demonstration
-  const sampleTracks = [
-    {
-      id: '1',
-      title: 'Test Artwork Track',
-      artist: 'RadDy Questions',
-      album: 'Logo Test Album',
-      artwork: 'https://via.placeholder.com/300x300/4CAF50/FFFFFF?text=Nature',
-      url: 'https://dl.espressif.com/dl/audio/ff-16b-2c-44100hz.mp3'
-    },
-    {
-      id: '2',
-      title: 'Nature Sounds',
-      artist: 'SoundJay',
-      album: 'Free Audio Samples',
-      artwork: 'https://via.placeholder.com/300x300/4CAF50/FFFFFF?text=Nature',
-      url: 'https://download.samplelib.com/mp3/sample-15s.mp3'
-    },
-    {
-      id: '3',
-      title: 'Piano Sample',
-      artist: 'Demo Artist',
-      album: 'Demo Album',
-      artwork: 'https://via.placeholder.com/300x300/2196F3/FFFFFF?text=Piano',
-      url: 'https://download.samplelib.com/mp3/sample-15s.mp3'
-    }
-  ];
+
   const [currentTrackIndex, setCurrentTrackIndex] = useState(0);
 
   // =============================================
   // PLAYER MANAGER SETUP
   // =============================================
-  
+
 
   // =============================================
   // EVENT HANDLERS SETUP
   // =============================================
-  
+
   // Initialize PlayerManager
   useEffect(() => {
     playerManager.init();
-    
+
     // Set up PlayerManager callbacks to sync with UI state
     playerManager.onIsPlayingChanged = (id: string, isPlaying: boolean) => {
       console.log('🎵 PlayerManager playing state changed:', isPlaying);
       setIsPlaying(isPlaying);
     };
-    
+
     playerManager.onIsLoadingChanged = (isLoading: boolean) => {
       // Could add a loading state here if needed
       console.log('Player loading state:', isLoading);
     };
-    
+
     playerManager.onProgressUpdated = (id: string, currentTime: number, duration: number) => {
       setCurrentPosition(currentTime);
       setTrackDuration(duration);
     };
-    
+
     playerManager.onItemChanged = (newItem) => {
       // Find the index of the new item and update UI
       const newIndex = sampleTracks.findIndex(track => track.id === newItem.id);
       if (newIndex >= 0) {
-        setCurrentTrackIndex(newIndex);
+        // setCurrentTrackIndex(newIndex);
         const track = sampleTracks[newIndex];
         setTrackTitle(track.title);
         setTrackArtist(track.artist);
         setTrackAlbum(track.album);
         setCurrentPosition(0);
-        
+
         // Update MediaControl metadata when track changes
       }
     };
-    
+
     playerManager.onItemCompleted = (id: string) => {
       console.log('Track completed:', id);
       // PlayerManager will handle skipping to next automatically
     };
-    
+
     // Load the playlist
     playerManager.loadPlayList(sampleTracks, false, sampleTracks[0].id);
 
-    
+
     return () => {
       playerManager.clearAudio();
     };
   }, []);
-  
-  
+
+
   // =============================================
   // PLAYBACK CONTROL HANDLERS
   // =============================================
-  
+
   const handlePlay = async () => {
     try {
       playerManager.play();
@@ -221,17 +221,17 @@ export default function App() {
       setTrackArtist(track.artist);
       setTrackAlbum(track.album);
       setCurrentPosition(0);
-      
+
       // Tell PlayerManager to start playing this track
       playerManager.startPlayingAtId(track.id);
-      
+
     }
   };
 
   // =============================================
   // UTILITY FUNCTIONS
   // =============================================
-  
+
   const formatTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
@@ -243,11 +243,13 @@ export default function App() {
   // =============================================
   // RENDER COMPONENT
   // =============================================
-  
+
+  console.log('CUrrent Track Index:', currentTrackIndex);
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
-        
+
         {/* Header */}
         <View style={styles.header}>
           <Text style={styles.headerTitle}>📱 Expo Media Control</Text>
@@ -285,7 +287,7 @@ export default function App() {
           </View>
         </View>
 
-       
+
 
         {/* Playback Controls */}
         <View style={styles.section}>
@@ -309,12 +311,12 @@ export default function App() {
         {/* Current Track Info */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Current Track</Text>
-          {getCurrentTrack().artwork && showArtwork && (
-            <Image source={{ uri: getCurrentTrack().artwork }} style={styles.artwork} />
+          {getCurrentTrack()?.artWork && showArtwork && (
+            <Image source={{ uri: getCurrentTrack().artWork }} style={styles.artwork} />
           )}
-          <Text style={styles.trackTitle}>{getCurrentTrack().title}</Text>
-          <Text style={styles.trackArtist}>{getCurrentTrack().artist}</Text>
-          <Text style={styles.trackAlbum}>{getCurrentTrack().album}</Text>
+          <Text style={styles.trackTitle}>{getCurrentTrack()?.title}</Text>
+          <Text style={styles.trackArtist}>{getCurrentTrack()?.artist}</Text>
+          <Text style={styles.trackAlbum}>{getCurrentTrack()?.album}</Text>
 
         </View>
 
@@ -322,11 +324,12 @@ export default function App() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Select Track</Text>
           {sampleTracks.map((track, index) => (
-            <View key={index} style={styles.trackItem}>
+            <View key={track.id} style={styles.trackItem}>
               <Button
+                key={track.id + currentTrackIndex}
                 title={`${index + 1}. ${track.title} - ${track.artist}`}
                 onPress={() => switchTrack(index)}
-                color={index === currentTrackIndex ? "#2196F3" : "#6c757d"}
+                color={index == currentTrackIndex ? "#2196F3" : "#6c757d"}
               />
             </View>
           ))}
@@ -346,48 +349,6 @@ export default function App() {
           </View>
         </View>
 
-        {/* Custom Metadata Input 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Custom Track Info</Text>
-          <TextInput
-            style={styles.input}
-            value={trackTitle}
-            onChangeText={setTrackTitle}
-            placeholder="Track Title"
-            onEndEditing={() => isEnabled && updateCurrentMetadata()}
-          />
-          <TextInput
-            style={styles.input}
-            value={trackArtist}
-            onChangeText={setTrackArtist}
-            placeholder="Artist"
-            onEndEditing={() => isEnabled && updateCurrentMetadata()}
-          />
-          <TextInput
-            style={styles.input}
-            value={trackAlbum}
-            onChangeText={setTrackAlbum}
-            placeholder="Album"
-            onEndEditing={() => isEnabled && updateCurrentMetadata()}
-          />
-          <TextInput
-            style={styles.input}
-            value={trackDuration.toString()}
-            onChangeText={(text) => setTrackDuration(parseInt(text) || 180)}
-            placeholder="Duration (seconds)"
-            keyboardType="numeric"
-            onEndEditing={() => isEnabled && updateCurrentMetadata()}
-          />
-          <View style={styles.buttonRow}>
-            <Button
-              title="Update Metadata"
-              onPress={updateCurrentMetadata}
-              disabled={!isEnabled}
-              color="#2196F3"
-            />
-          </View>
-        </View>
-*/}
       </ScrollView>
     </SafeAreaView>
   );
