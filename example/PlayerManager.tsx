@@ -224,7 +224,6 @@ export class PlayerManager {
         this.onItemChanged?.(audio);
 
         MediaControl.updateMetadata({
-
             title: audio.title,
             duration: audio.getDuration(),
             artist: audio.album,
@@ -412,14 +411,6 @@ export class PlayerManager {
             this.play();
     }
 
-    getCurrentTime(): number {
-        return this.activeAudio?.getCurrentTime() ?? 0;
-    }
-
-    getDuration(): number {
-        return this.activeAudio?.getDuration() ?? 0;
-    }
-
     async clearAudio() {
         for (const audio of this.audios) {
             audio.destroy();
@@ -471,6 +462,14 @@ export class PlayerManager {
         if (this.activeAudio?.prev) {
             this.changeItem(this.activeAudio.prev);
         }
+    }
+
+    getCurrentTime(): number {
+        return this.activeAudio?.getCurrentTime() ?? 0;
+    }
+    
+    getDuration(): number {
+        return this.activeAudio?.getDuration() ?? 0;
     }
 
     private changeItem(newItem: Audio) {

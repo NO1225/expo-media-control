@@ -452,7 +452,15 @@ class ExtendedExpoMediaControlModule {
       // Validate input
       validateMetadata(metadata);
 
-      await nativeModule.updateMetadata(metadata);
+      // Filter out undefined values to prevent native conversion errors
+      // This ensures robust handling of optional metadata fields
+      const cleanMetadata = Object.fromEntries(
+        Object.entries(metadata).filter(([_, value]) => value !== undefined)
+      ) as MediaMetadata;
+
+      console.log('📱 JS: Sending cleaned metadata to native:', JSON.stringify(cleanMetadata, null, 2));
+
+      await nativeModule.updateMetadata(cleanMetadata);
     } catch (error) {
       if (error instanceof ValidationError) {
         throw error;
