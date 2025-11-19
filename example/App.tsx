@@ -71,6 +71,7 @@ export default function App() {
   const [currentPosition, setCurrentPosition] = useState(0);
   const [volume, setVolume] = useState(1.0);
   const [lastEvent, setLastEvent] = useState<string>('No events yet');
+  const [playbackRate, setPlaybackRate] = useState(1.0); // Track current playback rate
 
   // Track metadata state
   const [trackTitle, setTrackTitle] = useState('Sample Track');
@@ -114,14 +115,12 @@ export default function App() {
       // Find the index of the new item and update UI
       const newIndex = sampleTracks.findIndex(track => track.id === newItem.id);
       if (newIndex >= 0) {
-        // setCurrentTrackIndex(newIndex);
+        setCurrentTrackIndex(newIndex);
         const track = sampleTracks[newIndex];
         setTrackTitle(track.title);
         setTrackArtist(track.artist);
         setTrackAlbum(track.album);
         setCurrentPosition(0);
-
-        // Update MediaControl metadata when track changes
       }
     };
 
@@ -213,6 +212,17 @@ export default function App() {
     Alert.alert('Rating', `Received rating: ${JSON.stringify(data)}`);
   };
 
+  const handleChangePlaybackRate = (rate: number) => {
+    try {
+      playerManager.setRate(rate);
+      setPlaybackRate(rate);
+      console.log(`🎚️ Playback rate changed to ${rate}x`);
+    } catch (error) {
+      console.error('Failed to change playback rate:', error);
+      Alert.alert('Error', 'Failed to change playback rate');
+    }
+  };
+
   const switchTrack = (index: number) => {
     if (index >= 0 && index < sampleTracks.length) {
       setCurrentTrackIndex(index);
@@ -278,6 +288,12 @@ export default function App() {
             </Text>
           </View>
           <View style={styles.statusRow}>
+            <Text style={styles.statusLabel}>Playback Rate:</Text>
+            <Text style={[styles.statusValue, { color: playbackRate !== 1.0 ? '#FF9800' : '#4CAF50' }]}>
+              {playbackRate}x
+            </Text>
+          </View>
+          <View style={styles.statusRow}>
             <Text style={styles.statusLabel}>Volume:</Text>
             <Text style={styles.statusValue}>{(volume * 100).toFixed(0)}%</Text>
           </View>
@@ -333,6 +349,26 @@ export default function App() {
               />
             </View>
           ))}
+        </View>
+
+        {/* Playback Rate Control */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Playback Speed</Text>
+          <Text style={styles.settingDescription}>
+            Change playback speed. Native controls will show smooth progress animation at any speed!
+          </Text>
+          <View style={styles.rateButtonsContainer}>
+            {[0.5, 0.75, 1.0, 1.25, 1.5, 2.0].map((rate) => (
+              <View key={rate} style={styles.rateButtonWrapper}>
+                <Button
+                  title={`${rate}x`}
+                  onPress={() => handleChangePlaybackRate(rate)}
+                  color={playbackRate === rate ? "#2196F3" : "#6c757d"}
+                  disabled={!isEnabled}
+                />
+              </View>
+            ))}
+          </View>
         </View>
 
         {/* Settings */}
@@ -472,6 +508,21 @@ const styles = StyleSheet.create({
   settingLabel: {
     fontSize: 16,
     color: '#333',
+  },
+  settingDescription: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 15,
+    fontStyle: 'italic',
+  },
+  rateButtonsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  rateButtonWrapper: {
+    width: '30%',
+    marginBottom: 10,
   },
   input: {
     borderWidth: 1,
