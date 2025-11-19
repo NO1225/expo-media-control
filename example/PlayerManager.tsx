@@ -259,7 +259,7 @@ export class PlayerManager {
             MediaControl.updatePlaybackState(
                 isPlaying ? PlaybackState.PLAYING : PlaybackState.PAUSED,
                 this.activeAudio?.getCurrentTime() ?? 0,
-                this.rate  // Pass current playback rate
+                isPlaying ? this.rate : 0.0  // Rate = this.rate when playing, 0.0 when paused
             ).catch(error => {
                 console.error('Failed to update MediaControl playback state from isPlaying change:', error);
             });
@@ -285,12 +285,13 @@ export class PlayerManager {
             this.onProgressUpdated?.(this.activeAudio.id, currentTime, duration);
 
             // Pass the current playback rate to native code so it can calculate progress between updates
+            // Rate = this.rate when playing, 0.0 when paused (platform convention)
             MediaControl.updatePlaybackState(
                 this.isPlaying ? PlaybackState.PLAYING : PlaybackState.PAUSED,
                 currentTime,
-                this.rate
+                this.isPlaying ? this.rate : 0.0
             ).catch(error => {
-                console.error('Failed to update MediaControl playback state from isPlaying change:', error);
+                console.error('Failed to update MediaControl playback state from progress update:', error);
             });
         }
     }
@@ -463,11 +464,12 @@ export class PlayerManager {
         this.activeAudio?.setRate(rate);
 
         // Immediately update native media controls with the new rate
+        // Only pass the actual rate if playing; pass 0.0 if paused (platform convention)
         if (this.activeAudio) {
             MediaControl.updatePlaybackState(
                 this.isPlaying ? PlaybackState.PLAYING : PlaybackState.PAUSED,
                 this.activeAudio.getCurrentTime(),
-                rate  // Pass the new playback rate
+                this.isPlaying ? rate : 0.0
             ).catch(error => {
                 console.error('Failed to update MediaControl playback state after rate change:', error);
             });
