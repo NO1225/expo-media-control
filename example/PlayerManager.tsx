@@ -256,7 +256,11 @@ export class PlayerManager {
     onIsPlayingChanged?: (id: string, isPlaying: boolean) => void;
     private setIsPlaying(isPlaying: boolean) {
         if (this.isPlaying !== isPlaying) {
-            MediaControl.updatePlaybackState(isPlaying ? PlaybackState.PLAYING : PlaybackState.PAUSED, this.activeAudio?.getCurrentTime() ?? 0).catch(error => {
+            MediaControl.updatePlaybackState(
+                isPlaying ? PlaybackState.PLAYING : PlaybackState.PAUSED,
+                this.activeAudio?.getCurrentTime() ?? 0,
+                this.rate  // Pass current playback rate
+            ).catch(error => {
                 console.error('Failed to update MediaControl playback state from isPlaying change:', error);
             });
         }
@@ -457,6 +461,17 @@ export class PlayerManager {
     setRate(rate: number) {
         this.rate = rate;
         this.activeAudio?.setRate(rate);
+
+        // Immediately update native media controls with the new rate
+        if (this.activeAudio) {
+            MediaControl.updatePlaybackState(
+                this.isPlaying ? PlaybackState.PLAYING : PlaybackState.PAUSED,
+                this.activeAudio.getCurrentTime(),
+                rate  // Pass the new playback rate
+            ).catch(error => {
+                console.error('Failed to update MediaControl playback state after rate change:', error);
+            });
+        }
     }
 
     play() {
