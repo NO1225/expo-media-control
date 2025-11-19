@@ -454,27 +454,83 @@ await setPlaybackSpeed(1.5, 60);  // 1.5x speed at 60 seconds
 await setPlaybackSpeed(2.0, 90);  // Double speed at 90 seconds
 ```
 
-### Integration with Audio Updates
+### Optimal Integration Pattern (Recommended)
 
-When updating progress regularly (e.g., every 500ms), always include the current playback rate:
+**Important:** Native platforms (iOS and Android) automatically animate progress based on the playback rate you provide. Calling `updatePlaybackState()` too frequently will **interrupt** this smooth native animation, especially on Android.
+
+**Best Practice:** Only update MediaControl when state **actually changes**:
 
 ```typescript
-// In your audio player's progress callback
-audioPlayer.addListener('playbackStatusUpdate', (status) => {
-  if (status.isLoaded) {
+// ✅ GOOD: Only update on state changes
+class PlayerManager {
+  private isPlaying = false;
+  private rate = 1.0;
+  private isBuffering = false;
+
+  // Update when play/pause state changes
+  setIsPlaying(playing: boolean) {
+    if (this.isPlaying !== playing) {
+      MediaControl.updatePlaybackState(
+        playing ? PlaybackState.PLAYING : PlaybackState.PAUSED,
+        this.getCurrentTime(),
+        playing ? this.rate : 0.0
+      );
+      this.isPlaying = playing;
+    }
+  }
+
+  // Update when playback rate changes
+  setRate(rate: number) {
+    this.rate = rate;
+    if (this.isPlaying) {
+      MediaControl.updatePlaybackState(
+        PlaybackState.PLAYING,
+        this.getCurrentTime(),
+        rate
+      );
+    }
+  }
+
+  // Update when buffering state changes
+  setBuffering(buffering: boolean) {
+    if (this.isBuffering !== buffering) {
+      MediaControl.updatePlaybackState(
+        buffering ? PlaybackState.BUFFERING : PlaybackState.PLAYING,
+        this.getCurrentTime(),
+        buffering ? 0.0 : this.rate
+      );
+      this.isBuffering = buffering;
+    }
+  }
+
+  // Update when user seeks
+  seekTo(position: number) {
     MediaControl.updatePlaybackState(
-      status.isPlaying ? PlaybackState.PLAYING : PlaybackState.PAUSED,
-      status.positionMillis / 1000,  // Convert to seconds
-      status.rate  // Current playback rate (e.g., 1.5 for 1.5x speed)
+      this.isPlaying ? PlaybackState.PLAYING : PlaybackState.PAUSED,
+      position,
+      this.isPlaying ? this.rate : 0.0
     );
   }
-});
+
+  // ❌ DON'T: Update in periodic progress callback
+  onProgressUpdate(position: number) {
+    // Just update your UI, NOT MediaControl
+    this.updateUI(position);
+
+    // Native platform is already animating progress smoothly!
+    // No need to call MediaControl.updatePlaybackState() here
+  }
+}
 ```
 
 ### Benefits
 
-- **Accurate Progress Display**: System controls show the correct progress even between updates
-- **Better Performance**: Reduces the need for very frequent position updates from JavaScript
+- **Smooth Native Animation**: System controls animate progress smoothly without interruption
+  - iOS Control Center and Lock Screen use native rendering
+  - Android MediaSession notification shows buttery-smooth progress animation
+  - **Critical for Android**: Frequent updates interrupt the native animation
+- **Accurate Progress Display**: System controls show the correct progress at any playback speed
+- **Better Performance**: Eliminates unnecessary JavaScript ↔ Native bridge calls (500ms → only on state changes)
 - **Native Behavior**: Platform media controls work exactly as users expect
 - **Supports All Speeds**: Works with any playback rate from 0.0 to 10.0
 

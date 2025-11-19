@@ -273,26 +273,42 @@ export class PlayerManager {
     isLoading: boolean = false;
     onIsLoadingChanged?: (isLoading: boolean) => void;
     private setIsLoading(isLoading: boolean) {
-        this.isLoading = isLoading;
+        // Only update MediaControl when buffering state changes
+        if (this.isLoading !== isLoading) {
+            this.isLoading = isLoading;
 
-        if (this.activeAudio)
-            this.onIsLoadingChanged?.(isLoading);
+            // Update MediaControl with buffering state
+            const state = isLoading
+                ? PlaybackState.BUFFERING
+                : (this.isPlaying ? PlaybackState.PLAYING : PlaybackState.PAUSED);
+
+            MediaControl.updatePlaybackState(
+                state,
+                this.activeAudio?.getCurrentTime() ?? 0,
+                (this.isPlaying && !isLoading) ? this.rate : 0.0
+            ).catch(error => {
+                console.error('Failed to update MediaControl buffering state:', error);
+            });
+
+            if (this.activeAudio)
+                this.onIsLoadingChanged?.(isLoading);
+        } else {
+            this.isLoading = isLoading;
+            if (this.activeAudio)
+                this.onIsLoadingChanged?.(isLoading);
+        }
     }
 
     onProgressUpdated?: (id: string, currentTime: number, duration: number) => void;
     private setCurrentProgress(currentTime: number, duration: number) {
         if (this.activeAudio) {
+            // Update JavaScript UI only - native platforms handle progress animation automatically
             this.onProgressUpdated?.(this.activeAudio.id, currentTime, duration);
 
-            // Pass the current playback rate to native code so it can calculate progress between updates
-            // Rate = this.rate when playing, 0.0 when paused (platform convention)
-            MediaControl.updatePlaybackState(
-                this.isPlaying ? PlaybackState.PLAYING : PlaybackState.PAUSED,
-                currentTime,
-                this.isPlaying ? this.rate : 0.0
-            ).catch(error => {
-                console.error('Failed to update MediaControl playback state from progress update:', error);
-            });
+            // NO MediaControl.updatePlaybackState() here!
+            // Native iOS/Android animate progress smoothly based on the playback rate.
+            // Calling updatePlaybackState every 500ms would interrupt the smooth native animation.
+            // Only update MediaControl when state actually changes (play/pause/rate/buffering/seek)
         }
     }
 
@@ -490,6 +506,18 @@ export class PlayerManager {
 
     seekTo(ratio: number) {
         this.activeAudio?.seekTo(ratio);
+
+        // Update MediaControl when user seeks (position jumped unexpectedly)
+        if (this.activeAudio) {
+            const newPosition = this.activeAudio.getDuration() * ratio;
+            MediaControl.updatePlaybackState(
+                this.isPlaying ? PlaybackState.PLAYING : PlaybackState.PAUSED,
+                newPosition,
+                this.isPlaying ? this.rate : 0.0
+            ).catch(error => {
+                console.error('Failed to update MediaControl playback state after seek:', error);
+            });
+        }
     }
 
     skipNext() {
