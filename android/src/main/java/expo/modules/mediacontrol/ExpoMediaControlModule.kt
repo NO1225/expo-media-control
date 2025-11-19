@@ -63,7 +63,7 @@ class ExpoMediaControlModule : Module() {
             if (currentMetadata.isNotEmpty()) {
               mediaService?.updateMetadata(currentMetadata.toMap())
             }
-            mediaService?.updatePlaybackState(currentPlaybackState, currentPosition.toDouble())
+            mediaService?.updatePlaybackState(currentPlaybackState, currentPosition.toDouble(), currentPlaybackRate.toDouble())
           } catch (e: Exception) {
             println("⚠️ Error applying pending updates after service connection: ${e.message}")
           }
@@ -112,7 +112,11 @@ class ExpoMediaControlModule : Module() {
   /// Current playback position in milliseconds
   @Volatile
   private var currentPosition: Long = 0L
-  
+
+  /// Current playback rate/speed (1.0 = normal speed, 2.0 = 2x speed, etc.)
+  @Volatile
+  private var currentPlaybackRate: Float = 1.0f
+
   /// Whether media controls are currently enabled
   private var isControlsEnabled: Boolean = false
   
@@ -230,10 +234,13 @@ class ExpoMediaControlModule : Module() {
     /**
      * Update the current playback state and position
      * Updates MediaSession playback state and refreshes notification accordingly
+     * @param state - The playback state
+     * @param position - The current position in seconds (optional)
+     * @param playbackRate - The playback rate/speed (optional)
      */
-    AsyncFunction("updatePlaybackState") { state: Int, position: Double?, promise: Promise ->
+    AsyncFunction("updatePlaybackState") { state: Int, position: Double?, playbackRate: Double?, promise: Promise ->
       try {
-        updatePlaybackState(state, position)
+        updatePlaybackState(state, position, playbackRate)
         promise.resolve(null)
       } catch (e: Exception) {
         promise.reject("UPDATE_STATE_FAILED", "Failed to update playback state: ${e.message}", e)
@@ -566,20 +573,35 @@ class ExpoMediaControlModule : Module() {
   /**
    * Update playback state implementation
    * Delegates to MediaPlaybackService for proper state management
+   * @param state - The playback state
+   * @param position - The current position in seconds (optional)
+   * @param playbackRate - The playback rate/speed (optional)
    */
-  private fun updatePlaybackState(state: Int, position: Double?) {
+  private fun updatePlaybackState(state: Int, position: Double?, playbackRate: Double?) {
     try {
       currentPlaybackState = state
-      
+
       // Update position if provided
-      position?.let { 
+      position?.let {
         currentPosition = (it * 1000).toLong() // Convert to milliseconds
       }
-      
+
+      // Update playback rate if provided, otherwise use default based on state
+      if (playbackRate != null) {
+        currentPlaybackRate = playbackRate.toFloat()
+      } else {
+        // Fallback to default behavior when rate is not provided
+        currentPlaybackRate = when (state) {
+          PLAYBACK_STATE_PLAYING -> 1.0f
+          PLAYBACK_STATE_PAUSED, PLAYBACK_STATE_BUFFERING -> 0.0f
+          else -> 0.0f // NONE, STOPPED, ERROR
+        }
+      }
+
       // Only update if service is bound
       if (isServiceBound && mediaService != null) {
-        mediaService?.updatePlaybackState(state, position)
-        println("🤖 Playback state updated via service: $state, position: ${currentPosition}ms")
+        mediaService?.updatePlaybackState(state, position, playbackRate)
+        println("🤖 Playback state updated via service: $state, position: ${currentPosition}ms, rate: $currentPlaybackRate")
       } else {
         println("⚠️ Service not bound, playback state update skipped")
       }
@@ -599,11 +621,12 @@ class ExpoMediaControlModule : Module() {
       currentMetadata.clear()
       currentPlaybackState = PLAYBACK_STATE_NONE
       currentPosition = 0L
-      
+      currentPlaybackRate = 1.0f
+
       // Only reset if service is bound
       if (isServiceBound && mediaService != null) {
         mediaService?.updateMetadata(emptyMap())
-        mediaService?.updatePlaybackState(PLAYBACK_STATE_NONE, 0.0)
+        mediaService?.updatePlaybackState(PLAYBACK_STATE_NONE, 0.0, 1.0)
         println("🤖 Controls reset via service to initial state")
       } else {
         println("⚠️ Service not bound, controls reset skipped")

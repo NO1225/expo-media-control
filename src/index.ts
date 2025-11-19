@@ -1,4 +1,6 @@
 // Re-export types and enums from ExpoMediaControlModule
+import ExpoMediaControlModule from "./ExpoMediaControlModule";
+
 export {
   PlaybackState,
   Command,
@@ -16,9 +18,7 @@ export {
   ValidationError,
   NativeError,
   NotEnabledError,
-} from './ExpoMediaControlModule';
-
-import ExpoMediaControlModule from './ExpoMediaControlModule';
+} from "./ExpoMediaControlModule";
 
 // =============================================
 // MAIN API INTERFACE
@@ -35,12 +35,12 @@ export interface ExpoMediaControlInterface {
   updateMetadata: typeof ExpoMediaControlModule.updateMetadata;
   updatePlaybackState: typeof ExpoMediaControlModule.updatePlaybackState;
   resetControls: typeof ExpoMediaControlModule.resetControls;
-  
+
   // Event handling methods
   addListener: typeof ExpoMediaControlModule.addListener;
   addVolumeChangeListener: typeof ExpoMediaControlModule.addVolumeChangeListener;
   removeAllListeners: typeof ExpoMediaControlModule.removeAllListeners;
-  
+
   // Utility methods
   isEnabled: typeof ExpoMediaControlModule.isEnabled;
   getCurrentMetadata: typeof ExpoMediaControlModule.getCurrentMetadata;

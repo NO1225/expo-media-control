@@ -20,6 +20,7 @@ A comprehensive, production-ready media control module for Expo and React Native
 - 📱 **Control Center & Notification Controls** - iOS Control Center and Android notification controls
 - 🎨 **Rich Artwork Display** - Support for local and remote artwork/album covers
 - ⏯️ **Comprehensive Playback Controls** - Play, pause, stop, next, previous, seek, skip, and rating
+- ⚡ **Variable Playback Rate Support** - Accurate progress tracking at any playback speed (0.5x, 1.5x, 2x, etc.)
 - 📢 **Background Audio Support** - Continue playback when app is backgrounded
 - 📳 **Volume Control Integration** - Monitor and respond to system volume changes
 - 🎯 **Event-Driven Architecture** - React to user interactions with system controls
@@ -295,9 +296,9 @@ await MediaControl.updateMetadata({
 });
 ```
 
-#### `updatePlaybackState(state: PlaybackState, position?: number): Promise<void>`
+#### `updatePlaybackState(state: PlaybackState, position?: number, playbackRate?: number): Promise<void>`
 
-Updates the current playback state and position.
+Updates the current playback state, position, and playback rate.
 
 ```typescript
 enum PlaybackState {
@@ -309,8 +310,14 @@ enum PlaybackState {
   ERROR = 5,
 }
 
-// Start playing at 45 seconds
+// Start playing at 45 seconds at normal speed
 await MediaControl.updatePlaybackState(PlaybackState.PLAYING, 45);
+
+// Playing at 1.5x speed - system controls will show accurate progress
+await MediaControl.updatePlaybackState(PlaybackState.PLAYING, 45, 1.5);
+
+// Playing at 2x speed
+await MediaControl.updatePlaybackState(PlaybackState.PLAYING, 30, 2.0);
 
 // Pause playback
 await MediaControl.updatePlaybackState(PlaybackState.PAUSED);
@@ -318,6 +325,13 @@ await MediaControl.updatePlaybackState(PlaybackState.PAUSED);
 // Show buffering
 await MediaControl.updatePlaybackState(PlaybackState.BUFFERING);
 ```
+
+**Playback Rate Parameter:**
+- Optional third parameter that specifies the playback speed (1.0 = normal speed)
+- When provided, enables the system to calculate accurate progress between updates
+- Particularly useful when playing audio at different speeds (0.5x, 1.5x, 2x, etc.)
+- If omitted, defaults to 1.0 when playing, 0.0 when paused/stopped/buffering
+- Range: 0.0 to 10.0 (validated by the module)
 
 #### Other Core Methods
 
@@ -403,6 +417,127 @@ Removes all event listeners.
 ```typescript
 await MediaControl.removeAllListeners();
 ```
+
+## ⚡ Variable Playback Rate
+
+The module supports variable playback rates, enabling accurate progress display in system media controls when playing audio at different speeds.
+
+### How It Works
+
+When you pass a playback rate to `updatePlaybackState()`, the native platform (iOS and Android) uses this information to:
+- **Calculate progress automatically** between your updates
+- **Display accurate scrubber position** in Control Center / Lock Screen / Notifications
+- **Reduce the need for frequent updates** from JavaScript
+
+### Example Usage
+
+```typescript
+import { MediaControl, PlaybackState } from 'expo-media-control';
+
+// Set playback rate when it changes
+const setPlaybackSpeed = async (speed: number, currentPosition: number) => {
+  // Update your audio player's speed
+  await audioPlayer.setPlaybackRate(speed);
+
+  // Update media controls with the new rate
+  await MediaControl.updatePlaybackState(
+    PlaybackState.PLAYING,
+    currentPosition,
+    speed  // Pass the playback rate
+  );
+};
+
+// Examples
+await setPlaybackSpeed(0.5, 30);  // Half speed at 30 seconds
+await setPlaybackSpeed(1.0, 45);  // Normal speed at 45 seconds
+await setPlaybackSpeed(1.5, 60);  // 1.5x speed at 60 seconds
+await setPlaybackSpeed(2.0, 90);  // Double speed at 90 seconds
+```
+
+### Optimal Integration Pattern (Recommended)
+
+**Important:** Native platforms (iOS and Android) automatically animate progress based on the playback rate you provide. Calling `updatePlaybackState()` too frequently will **interrupt** this smooth native animation, especially on Android.
+
+**Best Practice:** Only update MediaControl when state **actually changes**:
+
+```typescript
+// ✅ GOOD: Only update on state changes
+class PlayerManager {
+  private isPlaying = false;
+  private rate = 1.0;
+  private isBuffering = false;
+
+  // Update when play/pause state changes
+  setIsPlaying(playing: boolean) {
+    if (this.isPlaying !== playing) {
+      MediaControl.updatePlaybackState(
+        playing ? PlaybackState.PLAYING : PlaybackState.PAUSED,
+        this.getCurrentTime(),
+        playing ? this.rate : 0.0
+      );
+      this.isPlaying = playing;
+    }
+  }
+
+  // Update when playback rate changes
+  setRate(rate: number) {
+    this.rate = rate;
+    if (this.isPlaying) {
+      MediaControl.updatePlaybackState(
+        PlaybackState.PLAYING,
+        this.getCurrentTime(),
+        rate
+      );
+    }
+  }
+
+  // Update when buffering state changes
+  setBuffering(buffering: boolean) {
+    if (this.isBuffering !== buffering) {
+      MediaControl.updatePlaybackState(
+        buffering ? PlaybackState.BUFFERING : PlaybackState.PLAYING,
+        this.getCurrentTime(),
+        buffering ? 0.0 : this.rate
+      );
+      this.isBuffering = buffering;
+    }
+  }
+
+  // Update when user seeks
+  seekTo(position: number) {
+    MediaControl.updatePlaybackState(
+      this.isPlaying ? PlaybackState.PLAYING : PlaybackState.PAUSED,
+      position,
+      this.isPlaying ? this.rate : 0.0
+    );
+  }
+
+  // ❌ DON'T: Update in periodic progress callback
+  onProgressUpdate(position: number) {
+    // Just update your UI, NOT MediaControl
+    this.updateUI(position);
+
+    // Native platform is already animating progress smoothly!
+    // No need to call MediaControl.updatePlaybackState() here
+  }
+}
+```
+
+### Benefits
+
+- **Smooth Native Animation**: System controls animate progress smoothly without interruption
+  - iOS Control Center and Lock Screen use native rendering
+  - Android MediaSession notification shows buttery-smooth progress animation
+  - **Critical for Android**: Frequent updates interrupt the native animation
+- **Accurate Progress Display**: System controls show the correct progress at any playback speed
+- **Better Performance**: Eliminates unnecessary JavaScript ↔ Native bridge calls (500ms → only on state changes)
+- **Native Behavior**: Platform media controls work exactly as users expect
+- **Supports All Speeds**: Works with any playback rate from 0.0 to 10.0
+
+### Platform Support
+
+- **iOS**: Uses `MPNowPlayingInfoPropertyPlaybackRate` to inform Control Center and Lock Screen
+- **Android**: Uses `PlaybackStateCompat.setState()` playback speed parameter for MediaSession
 
 ## 🎨 Artwork Support
 
