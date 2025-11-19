@@ -133,6 +133,24 @@ function validatePosition(position: any): asserts position is number {
 }
 
 /**
+ * Validates playback rate input
+ */
+function validatePlaybackRate(rate: any): asserts rate is number {
+  if (typeof rate !== 'number') {
+    throw new ValidationError('Playback rate must be a number', 'playbackRate');
+  }
+  if (rate < 0) {
+    throw new ValidationError('Playback rate must be non-negative', 'playbackRate');
+  }
+  if (rate > 10) {
+    throw new ValidationError('Playback rate must not exceed 10', 'playbackRate');
+  }
+  if (!isFinite(rate)) {
+    throw new ValidationError('Playback rate must be finite', 'playbackRate');
+  }
+}
+
+/**
  * Validates media control options
  */
 function validateMediaControlOptions(options: any): asserts options is MediaControlOptions {
@@ -325,8 +343,11 @@ declare class ExpoMediaControlNativeModule extends NativeModule {
   /**
    * Update the current playback state and position
    * Updates the system about current playback status
+   * @param state - The playback state
+   * @param position - The current position in seconds (optional)
+   * @param playbackRate - The playback rate/speed (optional, defaults to 1.0 when playing, 0.0 when paused)
    */
-  updatePlaybackState(state: PlaybackState, position?: number): Promise<void>;
+  updatePlaybackState(state: PlaybackState, position?: number, playbackRate?: number): Promise<void>;
 
   /**
    * Reset all media control information to default state
@@ -468,16 +489,22 @@ class ExtendedExpoMediaControlModule {
   /**
    * Update the current playback state and position
    * Updates the system about current playback status
+   * @param state - The playback state
+   * @param position - The current position in seconds (optional)
+   * @param playbackRate - The playback rate/speed (optional, defaults to 1.0 when playing, 0.0 when paused)
    */
-  updatePlaybackState = async (state: PlaybackState, position?: number): Promise<void> => {
+  updatePlaybackState = async (state: PlaybackState, position?: number, playbackRate?: number): Promise<void> => {
     try {
       // Validate input
       validatePlaybackState(state);
       if (position !== undefined) {
         validatePosition(position);
       }
+      if (playbackRate !== undefined) {
+        validatePlaybackRate(playbackRate);
+      }
 
-      await nativeModule.updatePlaybackState(state, position);
+      await nativeModule.updatePlaybackState(state, position, playbackRate);
     } catch (error) {
       if (error instanceof ValidationError) {
         throw error;

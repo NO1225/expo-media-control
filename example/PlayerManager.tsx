@@ -280,7 +280,12 @@ export class PlayerManager {
         if (this.activeAudio) {
             this.onProgressUpdated?.(this.activeAudio.id, currentTime, duration);
 
-            MediaControl.updatePlaybackState(this.isPlaying ? PlaybackState.PLAYING : PlaybackState.PAUSED, currentTime).catch(error => {
+            // Pass the current playback rate to native code so it can calculate progress between updates
+            MediaControl.updatePlaybackState(
+                this.isPlaying ? PlaybackState.PLAYING : PlaybackState.PAUSED,
+                currentTime,
+                this.rate
+            ).catch(error => {
                 console.error('Failed to update MediaControl playback state from isPlaying change:', error);
             });
         }

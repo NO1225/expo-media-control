@@ -23,7 +23,10 @@ public class ExpoMediaControlModule: Module {
   
   /// Current playback position in seconds
   private var currentPosition: Double = 0.0
-  
+
+  /// Current playback rate/speed (1.0 = normal speed, 2.0 = 2x speed, etc.)
+  private var currentPlaybackRate: Double = 1.0
+
   /// Whether media controls are currently enabled
   private var isControlsEnabled: Bool = false
   
@@ -89,9 +92,12 @@ public class ExpoMediaControlModule: Module {
     /**
      * Update the current playback state and position
      * Informs the system about current playback status for proper UI updates
+     * @param state - The playback state
+     * @param position - The current position in seconds (optional)
+     * @param playbackRate - The playback rate/speed (optional)
      */
-    AsyncFunction("updatePlaybackState") { (state: Int, position: Double?) in
-      return try await self.updatePlaybackState(state: state, position: position)
+    AsyncFunction("updatePlaybackState") { (state: Int, position: Double?, playbackRate: Double?) in
+      return try await self.updatePlaybackState(state: state, position: position, playbackRate: playbackRate)
     }
 
     /**
@@ -217,6 +223,7 @@ public class ExpoMediaControlModule: Module {
     currentMetadata.removeAll()
     currentPlaybackState = 0 // PlaybackState.NONE
     currentPosition = 0.0
+    currentPlaybackRate = 1.0
     controlOptions.removeAll()
     isRatingEnabled = false
     
@@ -310,10 +317,9 @@ public class ExpoMediaControlModule: Module {
     
     // Set elapsed time
     nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = currentPosition
-    
-    // Set playback rate based on current state
-    let playbackRate: Double = currentPlaybackState == 2 ? 1.0 : 0.0 // 2 = PlaybackState.PLAYING
-    nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = playbackRate
+
+    // Set playback rate - use the stored rate which reflects actual playback speed
+    nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = currentPlaybackRate
     
     // Handle artwork asynchronously
     if let artworkDict = metadata["artwork"] as? [String: Any],
@@ -341,40 +347,48 @@ public class ExpoMediaControlModule: Module {
   /**
    * Update playback state implementation
    * Updates the system about current playback status
+   * @param state - The playback state
+   * @param position - The current position in seconds (optional)
+   * @param playbackRate - The playback rate/speed (optional)
    */
-  private func updatePlaybackState(state: Int, position: Double?) async throws {
+  private func updatePlaybackState(state: Int, position: Double?, playbackRate: Double?) async throws {
     currentPlaybackState = state
-    
+
     if let pos = position {
       currentPosition = pos
     }
-    
+
+    // Update playback rate if provided, otherwise use default based on state
+    if let rate = playbackRate {
+      currentPlaybackRate = rate
+    } else {
+      // Fallback to default behavior when rate is not provided
+      switch state {
+      case 2: // PlaybackState.PLAYING
+        currentPlaybackRate = 1.0
+      case 3, 4: // PlaybackState.PAUSED or BUFFERING
+        currentPlaybackRate = 0.0
+      default: // NONE, STOPPED, ERROR
+        currentPlaybackRate = 0.0
+      }
+    }
+
     // Update now playing info with new playback information
     var nowPlayingInfo = nowPlayingInfoCenter.nowPlayingInfo ?? [:]
-    
+
     // Update elapsed time
     nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = currentPosition
-    
-    // Update playback rate based on state
-    let playbackRate: Double
-    switch state {
-    case 2: // PlaybackState.PLAYING
-      playbackRate = 1.0
-    case 3: // PlaybackState.PAUSED
-      playbackRate = 0.0
-    case 4: // PlaybackState.BUFFERING
-      playbackRate = 0.0
-    default: // NONE, STOPPED, ERROR
-      playbackRate = 0.0
-    }
-    nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = playbackRate
-    
+
+    // Update playback rate - use the stored rate which reflects actual playback speed
+    // This allows iOS to calculate progress correctly between updates
+    nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = currentPlaybackRate
+
     // Update the system
     DispatchQueue.main.async { [weak self] in
       self?.nowPlayingInfoCenter.nowPlayingInfo = nowPlayingInfo
     }
-    
-    print("📱 Playback state updated: \(state), position: \(currentPosition)")
+
+    print("📱 Playback state updated: \(state), position: \(currentPosition), rate: \(currentPlaybackRate)")
   }
 
   /**
@@ -385,6 +399,7 @@ public class ExpoMediaControlModule: Module {
     currentMetadata.removeAll()
     currentPlaybackState = 0 // PlaybackState.NONE
     currentPosition = 0.0
+    currentPlaybackRate = 1.0
     isRatingEnabled = false
     
     // Update rating commands to reflect disabled state

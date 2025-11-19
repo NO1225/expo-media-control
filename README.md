@@ -1,19 +1,6 @@
-# 📱 Expo Media Con-- 🎵 **Compl- ⏯️ **Comprehensive Playback Controls** - Play, pause, stop, next, previous, seek, skip, and rating
-- 📢 **Background Audio Support** - Continue playback when app is backgrounded
-- 📳 **Volume Control Integration** - Monitor and respond to system volume changesMedia Session Management** - Full control over media playback state and metadata
-- � **Lock Screen Integration** - Native lock screen controls with artwork support
-- �📱 **Control Center & Notification Controls** - iOS Control Center and Android notification controls
-- 🎨 **Rich Artwork Display** - Support for local and remote artwork/album covers
-- ⏯️ **Comprehensive Playback Controls** - Play, pause, stop, next, previous, seek, skip, and rating
-- 📢 **Background Audio Support** - Continue playback when app is backgrounded
-- 📳 **Volume Control Integration** - Monitor and respond to system volume changes
-- 🎯 **Event-Driven Architecture** - React to user interactions with system controls
-- 🛠️ **Full TypeScript Support** - Complete type definitions and IntelliSense supportrol Center & Notification Controls** - iOS Control Center and Android notification controls
-- 🎨 **Rich Artwork Display** - Support for local and remote artwork/album covers
-- ⏯️ **Comprehensive Playback Controls** - Play, pause, stop, next, previous, seek, skip, and rating
-- 📢 **Background Audio Support** - Continue playback when app is backgrounded
-- 📳 **Volume Control Integration** - Monitor and respond to system volume changes
-- 🎯 **Event-Driven Architecture** - React to user interactions with system controls comprehensive, production-ready media control module for Expo and React Native applications. Provides seamless integration with system media controls including Control Center (iOS), lock screen controls, Android notifications, and remote control events with full TypeScript support.
+# 📱 Expo Media Control
+
+A comprehensive, production-ready media control module for Expo and React Native applications. Provides seamless integration with system media controls including Control Center (iOS), lock screen controls, Android notifications, and remote control events with full TypeScript support.
 
 [![npm version](https://img.shields.io/npm/v/expo-media-control.svg)](https://www.npmjs.com/package/expo-media-control)
 [![Platform - Android and iOS](https://img.shields.io/badge/platform-Android%20%7C%20iOS-blue.svg)](https://github.com/NO1225/expo-media-control)
@@ -33,14 +20,14 @@
 - 📱 **Control Center & Notification Controls** - iOS Control Center and Android notification controls
 - 🎨 **Rich Artwork Display** - Support for local and remote artwork/album covers
 - ⏯️ **Comprehensive Playback Controls** - Play, pause, stop, next, previous, seek, skip, and rating
--  **Background Audio Support** - Continue playback when app is backgrounded
-- 🔔 **Audio Interruption Handling** - Graceful handling of calls, notifications, and interruptions
+- ⚡ **Variable Playback Rate Support** - Accurate progress tracking at any playback speed (0.5x, 1.5x, 2x, etc.)
+- 📢 **Background Audio Support** - Continue playback when app is backgrounded
 - 📳 **Volume Control Integration** - Monitor and respond to system volume changes
 - 🎯 **Event-Driven Architecture** - React to user interactions with system controls
 - 🛠️ **Full TypeScript Support** - Complete type definitions and IntelliSense support
 - 🔧 **Highly Configurable** - Extensive customization options for both platforms
 
-## � Installation
+## 📦 Installation
 
 ```bash
 npm install expo-media-control
@@ -84,7 +71,6 @@ Add the plugin to your `app.json` or `app.config.js`:
 **Note:** The plugin configuration is for **build-time** setup only. Runtime configuration (like `skipInterval`, notification appearance, etc.) should be passed to `enableMediaControls()`. See [API Reference](#api-reference) below.
 
 **💡 Custom Notification Icon:** Android requires monochrome (white on transparent) icons for notifications. See our [detailed guide](./CUSTOM_NOTIFICATION_ICON.md) on creating and using custom icons.
-```
 
 ## 🏃‍♂️ Quick Start
 
@@ -234,7 +220,7 @@ export default function MusicPlayer() {
 }
 ```
 
-## � API Reference
+## 📚 API Reference
 
 ### Core Methods
 
@@ -264,8 +250,6 @@ await MediaControl.enableMediaControls({
   notification: {
     // Note: For managed workflow, set icon in app.json plugin config instead
     // icon: 'ic_music_note',   // Bare workflow only: reference existing drawable resource
-    color: '#1976D2',
-  },
     color: '#1976D2',
   },
   ios: {
@@ -312,9 +296,9 @@ await MediaControl.updateMetadata({
 });
 ```
 
-#### `updatePlaybackState(state: PlaybackState, position?: number): Promise<void>`
+#### `updatePlaybackState(state: PlaybackState, position?: number, playbackRate?: number): Promise<void>`
 
-Updates the current playback state and position.
+Updates the current playback state, position, and playback rate.
 
 ```typescript
 enum PlaybackState {
@@ -326,8 +310,14 @@ enum PlaybackState {
   ERROR = 5,
 }
 
-// Start playing at 45 seconds
+// Start playing at 45 seconds at normal speed
 await MediaControl.updatePlaybackState(PlaybackState.PLAYING, 45);
+
+// Playing at 1.5x speed - system controls will show accurate progress
+await MediaControl.updatePlaybackState(PlaybackState.PLAYING, 45, 1.5);
+
+// Playing at 2x speed
+await MediaControl.updatePlaybackState(PlaybackState.PLAYING, 30, 2.0);
 
 // Pause playback
 await MediaControl.updatePlaybackState(PlaybackState.PAUSED);
@@ -335,6 +325,13 @@ await MediaControl.updatePlaybackState(PlaybackState.PAUSED);
 // Show buffering
 await MediaControl.updatePlaybackState(PlaybackState.BUFFERING);
 ```
+
+**Playback Rate Parameter:**
+- Optional third parameter that specifies the playback speed (1.0 = normal speed)
+- When provided, enables the system to calculate accurate progress between updates
+- Particularly useful when playing audio at different speeds (0.5x, 1.5x, 2x, etc.)
+- If omitted, defaults to 1.0 when playing, 0.0 when paused/stopped/buffering
+- Range: 0.0 to 10.0 (validated by the module)
 
 #### Other Core Methods
 
@@ -420,6 +417,71 @@ Removes all event listeners.
 ```typescript
 await MediaControl.removeAllListeners();
 ```
+
+## ⚡ Variable Playback Rate
+
+The module supports variable playback rates, enabling accurate progress display in system media controls when playing audio at different speeds.
+
+### How It Works
+
+When you pass a playback rate to `updatePlaybackState()`, the native platform (iOS and Android) uses this information to:
+- **Calculate progress automatically** between your updates
+- **Display accurate scrubber position** in Control Center / Lock Screen / Notifications
+- **Reduce the need for frequent updates** from JavaScript
+
+### Example Usage
+
+```typescript
+import { MediaControl, PlaybackState } from 'expo-media-control';
+
+// Set playback rate when it changes
+const setPlaybackSpeed = async (speed: number, currentPosition: number) => {
+  // Update your audio player's speed
+  await audioPlayer.setPlaybackRate(speed);
+
+  // Update media controls with the new rate
+  await MediaControl.updatePlaybackState(
+    PlaybackState.PLAYING,
+    currentPosition,
+    speed  // Pass the playback rate
+  );
+};
+
+// Examples
+await setPlaybackSpeed(0.5, 30);  // Half speed at 30 seconds
+await setPlaybackSpeed(1.0, 45);  // Normal speed at 45 seconds
+await setPlaybackSpeed(1.5, 60);  // 1.5x speed at 60 seconds
+await setPlaybackSpeed(2.0, 90);  // Double speed at 90 seconds
+```
+
+### Integration with Audio Updates
+
+When updating progress regularly (e.g., every 500ms), always include the current playback rate:
+
+```typescript
+// In your audio player's progress callback
+audioPlayer.addListener('playbackStatusUpdate', (status) => {
+  if (status.isLoaded) {
+    MediaControl.updatePlaybackState(
+      status.isPlaying ? PlaybackState.PLAYING : PlaybackState.PAUSED,
+      status.positionMillis / 1000,  // Convert to seconds
+      status.rate  // Current playback rate (e.g., 1.5 for 1.5x speed)
+    );
+  }
+});
+```
+
+### Benefits
+
+- **Accurate Progress Display**: System controls show the correct progress even between updates
+- **Better Performance**: Reduces the need for very frequent position updates from JavaScript
+- **Native Behavior**: Platform media controls work exactly as users expect
+- **Supports All Speeds**: Works with any playback rate from 0.0 to 10.0
+
+### Platform Support
+
+- **iOS**: Uses `MPNowPlayingInfoPropertyPlaybackRate` to inform Control Center and Lock Screen
+- **Android**: Uses `PlaybackStateCompat.setState()` playback speed parameter for MediaSession
 
 ## 🎨 Artwork Support
 
@@ -770,11 +832,11 @@ Configure the plugin in your `app.json`:
 
 Contributions are welcome! Please read our [Contributing Guide](https://github.com/NO1225/expo-media-control/blob/main/CONTRIBUTING.md) for details.
 
-## � Changelog
+## 📋 Changelog
 
 See [CHANGELOG.md](https://github.com/NO1225/expo-media-control/blob/main/CHANGELOG.md) for detailed release notes.
 
-## � License
+## 📄 License
 
 MIT License - see [LICENSE](https://github.com/NO1225/expo-media-control/blob/main/LICENSE) file for details.
 
