@@ -1,19 +1,6 @@
-# 📱 Expo Media Con-- 🎵 **Compl- ⏯️ **Comprehensive Playback Controls** - Play, pause, stop, next, previous, seek, skip, and rating
-- 📢 **Background Audio Support** - Continue playback when app is backgrounded
-- 📳 **Volume Control Integration** - Monitor and respond to system volume changesMedia Session Management** - Full control over media playback state and metadata
-- � **Lock Screen Integration** - Native lock screen controls with artwork support
-- �📱 **Control Center & Notification Controls** - iOS Control Center and Android notification controls
-- 🎨 **Rich Artwork Display** - Support for local and remote artwork/album covers
-- ⏯️ **Comprehensive Playback Controls** - Play, pause, stop, next, previous, seek, skip, and rating
-- 📢 **Background Audio Support** - Continue playback when app is backgrounded
-- 📳 **Volume Control Integration** - Monitor and respond to system volume changes
-- 🎯 **Event-Driven Architecture** - React to user interactions with system controls
-- 🛠️ **Full TypeScript Support** - Complete type definitions and IntelliSense supportrol Center & Notification Controls** - iOS Control Center and Android notification controls
-- 🎨 **Rich Artwork Display** - Support for local and remote artwork/album covers
-- ⏯️ **Comprehensive Playback Controls** - Play, pause, stop, next, previous, seek, skip, and rating
-- 📢 **Background Audio Support** - Continue playback when app is backgrounded
-- 📳 **Volume Control Integration** - Monitor and respond to system volume changes
-- 🎯 **Event-Driven Architecture** - React to user interactions with system controls comprehensive, production-ready media control module for Expo and React Native applications. Provides seamless integration with system media controls including Control Center (iOS), lock screen controls, Android notifications, and remote control events with full TypeScript support.
+# 📱 Expo Media Control
+
+A comprehensive, production-ready media control module for Expo and React Native applications. Provides seamless integration with system media controls including Control Center (iOS), lock screen controls, Android notifications, and remote control events with full TypeScript support.
 
 [![npm version](https://img.shields.io/npm/v/expo-media-control.svg)](https://www.npmjs.com/package/expo-media-control)
 [![Platform - Android and iOS](https://img.shields.io/badge/platform-Android%20%7C%20iOS-blue.svg)](https://github.com/NO1225/expo-media-control)
@@ -33,14 +20,13 @@
 - 📱 **Control Center & Notification Controls** - iOS Control Center and Android notification controls
 - 🎨 **Rich Artwork Display** - Support for local and remote artwork/album covers
 - ⏯️ **Comprehensive Playback Controls** - Play, pause, stop, next, previous, seek, skip, and rating
--  **Background Audio Support** - Continue playback when app is backgrounded
-- 🔔 **Audio Interruption Handling** - Graceful handling of calls, notifications, and interruptions
+- 📢 **Background Audio Support** - Continue playback when app is backgrounded
 - 📳 **Volume Control Integration** - Monitor and respond to system volume changes
 - 🎯 **Event-Driven Architecture** - React to user interactions with system controls
 - 🛠️ **Full TypeScript Support** - Complete type definitions and IntelliSense support
 - 🔧 **Highly Configurable** - Extensive customization options for both platforms
 
-## � Installation
+## 📦 Installation
 
 ```bash
 npm install expo-media-control
@@ -84,7 +70,6 @@ Add the plugin to your `app.json` or `app.config.js`:
 **Note:** The plugin configuration is for **build-time** setup only. Runtime configuration (like `skipInterval`, notification appearance, etc.) should be passed to `enableMediaControls()`. See [API Reference](#api-reference) below.
 
 **💡 Custom Notification Icon:** Android requires monochrome (white on transparent) icons for notifications. See our [detailed guide](./CUSTOM_NOTIFICATION_ICON.md) on creating and using custom icons.
-```
 
 ## 🏃‍♂️ Quick Start
 
@@ -234,7 +219,7 @@ export default function MusicPlayer() {
 }
 ```
 
-## � API Reference
+## 📚 API Reference
 
 ### Core Methods
 
@@ -264,8 +249,6 @@ await MediaControl.enableMediaControls({
   notification: {
     // Note: For managed workflow, set icon in app.json plugin config instead
     // icon: 'ic_music_note',   // Bare workflow only: reference existing drawable resource
-    color: '#1976D2',
-  },
     color: '#1976D2',
   },
   ios: {
@@ -770,11 +753,11 @@ Configure the plugin in your `app.json`:
 
 Contributions are welcome! Please read our [Contributing Guide](https://github.com/NO1225/expo-media-control/blob/main/CONTRIBUTING.md) for details.
 
-## � Changelog
+## 📋 Changelog
 
 See [CHANGELOG.md](https://github.com/NO1225/expo-media-control/blob/main/CHANGELOG.md) for detailed release notes.
 
-## � License
+## 📄 License
 
 MIT License - see [LICENSE](https://github.com/NO1225/expo-media-control/blob/main/LICENSE) file for details.
 
