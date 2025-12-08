@@ -237,6 +237,12 @@ export class PlayerManager {
                 width: 512,
                 height:512
             }: undefined,
+        }).then(()=>{
+            MediaControl.updatePlaybackState(
+                PlaybackState.PLAYING,
+                0,
+                this.rate
+            )
         }).catch(error => {
             console.error('Failed to update MediaControl metadata from setActiveAudio:', error);
         })
