@@ -66,7 +66,8 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
   // Current state tracking
   private var currentPlaybackState = PlaybackStateCompat.STATE_NONE
   private var currentPosition = 0L
-  
+  private var currentPlaybackRate = 1.0f // Default 1.0x speed
+
   // Configuration options
   private var skipInterval = 15.0 // Default 15 seconds
   
@@ -410,7 +411,7 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
     updateNotification()
   }
 
-  fun updatePlaybackState(state: Int, position: Double?) {
+  fun updatePlaybackState(state: Int, position: Double?, playbackRate: Double?) {
     currentPlaybackState = when (state) {
       0 -> PlaybackStateCompat.STATE_NONE
       1 -> PlaybackStateCompat.STATE_STOPPED
@@ -420,22 +421,30 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
       5 -> PlaybackStateCompat.STATE_ERROR
       else -> PlaybackStateCompat.STATE_NONE
     }
-    
+
     position?.let {
       currentPosition = (it * 1000).toLong()
     }
-    
+
+    // Update playback rate if provided, otherwise use default based on state
+    if (playbackRate != null) {
+      currentPlaybackRate = playbackRate.toFloat()
+    } else {
+      // Fallback to default behavior when rate is not provided
+      currentPlaybackRate = if (currentPlaybackState == PlaybackStateCompat.STATE_PLAYING) 1.0f else 0.0f
+    }
+
     updatePlaybackState()
     updateNotification()
   }
 
   private fun updatePlaybackState() {
-    val playbackSpeed = if (currentPlaybackState == PlaybackStateCompat.STATE_PLAYING) 1.0f else 0.0f
-    
+    // Use the stored playback rate which reflects actual playback speed
+    // This allows Android to calculate progress correctly between updates
     stateBuilder
       .setActions(getAvailableActions())
-      .setState(currentPlaybackState, currentPosition, playbackSpeed)
-    
+      .setState(currentPlaybackState, currentPosition, currentPlaybackRate)
+
     mediaSession.setPlaybackState(stateBuilder.build())
   }
 

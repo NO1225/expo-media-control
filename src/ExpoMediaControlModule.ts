@@ -1,4 +1,4 @@
-import { NativeModule, requireNativeModule } from 'expo';
+import { NativeModule, requireNativeModule } from "expo";
 
 // =============================================
 // CUSTOM ERROR TYPES
@@ -8,9 +8,13 @@ import { NativeModule, requireNativeModule } from 'expo';
  * Base error class for media control errors
  */
 export class MediaControlError extends Error {
-  constructor(message: string, public readonly code?: string, public readonly cause?: Error) {
+  constructor(
+    message: string,
+    public readonly code?: string,
+    public readonly cause?: Error,
+  ) {
     super(message);
-    this.name = 'MediaControlError';
+    this.name = "MediaControlError";
   }
 }
 
@@ -18,9 +22,12 @@ export class MediaControlError extends Error {
  * Error thrown when validation fails
  */
 export class ValidationError extends MediaControlError {
-  constructor(message: string, public readonly field?: string) {
-    super(message, 'VALIDATION_ERROR');
-    this.name = 'ValidationError';
+  constructor(
+    message: string,
+    public readonly field?: string,
+  ) {
+    super(message, "VALIDATION_ERROR");
+    this.name = "ValidationError";
   }
 }
 
@@ -30,7 +37,7 @@ export class ValidationError extends MediaControlError {
 export class NativeError extends MediaControlError {
   constructor(message: string, code?: string, cause?: Error) {
     super(message, code, cause);
-    this.name = 'NativeError';
+    this.name = "NativeError";
   }
 }
 
@@ -38,9 +45,9 @@ export class NativeError extends MediaControlError {
  * Error thrown when media controls are not enabled
  */
 export class NotEnabledError extends MediaControlError {
-  constructor(message: string = 'Media controls are not enabled') {
-    super(message, 'NOT_ENABLED');
-    this.name = 'NotEnabledError';
+  constructor(message: string = "Media controls are not enabled") {
+    super(message, "NOT_ENABLED");
+    this.name = "NotEnabledError";
   }
 }
 
@@ -52,22 +59,27 @@ export class NotEnabledError extends MediaControlError {
  * Validates media metadata input
  */
 function validateMetadata(metadata: any): asserts metadata is MediaMetadata {
-  if (!metadata || typeof metadata !== 'object') {
-    throw new ValidationError('Metadata must be an object', 'metadata');
+  if (!metadata || typeof metadata !== "object") {
+    throw new ValidationError("Metadata must be an object", "metadata");
   }
 
   // Validate optional string fields
-  const stringFields = ['title', 'artist', 'album', 'genre', 'date'];
+  const stringFields = ["title", "artist", "album", "genre", "date"];
   for (const field of stringFields) {
-    if (metadata[field] !== undefined && typeof metadata[field] !== 'string') {
+    if (metadata[field] !== undefined && typeof metadata[field] !== "string") {
       throw new ValidationError(`${field} must be a string`, field);
     }
   }
 
   // Validate optional number fields
-  const numberFields = ['duration', 'elapsedTime', 'trackNumber', 'albumTrackCount'];
+  const numberFields = [
+    "duration",
+    "elapsedTime",
+    "trackNumber",
+    "albumTrackCount",
+  ];
   for (const field of numberFields) {
-    if (metadata[field] !== undefined && typeof metadata[field] !== 'number') {
+    if (metadata[field] !== undefined && typeof metadata[field] !== "number") {
       throw new ValidationError(`${field} must be a number`, field);
     }
     if (metadata[field] !== undefined && metadata[field] < 0) {
@@ -77,30 +89,57 @@ function validateMetadata(metadata: any): asserts metadata is MediaMetadata {
 
   // Validate artwork
   if (metadata.artwork !== undefined) {
-    if (!metadata.artwork || typeof metadata.artwork !== 'object') {
-      throw new ValidationError('artwork must be an object', 'artwork');
+    if (!metadata.artwork || typeof metadata.artwork !== "object") {
+      throw new ValidationError("artwork must be an object", "artwork");
     }
-    if (typeof metadata.artwork.uri !== 'string' || metadata.artwork.uri.length === 0) {
-      throw new ValidationError('artwork.uri must be a non-empty string', 'artwork.uri');
+    if (
+      typeof metadata.artwork.uri !== "string" ||
+      metadata.artwork.uri.length === 0
+    ) {
+      throw new ValidationError(
+        "artwork.uri must be a non-empty string",
+        "artwork.uri",
+      );
     }
-    if (metadata.artwork.width !== undefined && typeof metadata.artwork.width !== 'number') {
-      throw new ValidationError('artwork.width must be a number', 'artwork.width');
+    if (
+      metadata.artwork.width !== undefined &&
+      typeof metadata.artwork.width !== "number"
+    ) {
+      throw new ValidationError(
+        "artwork.width must be a number",
+        "artwork.width",
+      );
     }
-    if (metadata.artwork.height !== undefined && typeof metadata.artwork.height !== 'number') {
-      throw new ValidationError('artwork.height must be a number', 'artwork.height');
+    if (
+      metadata.artwork.height !== undefined &&
+      typeof metadata.artwork.height !== "number"
+    ) {
+      throw new ValidationError(
+        "artwork.height must be a number",
+        "artwork.height",
+      );
     }
   }
 
   // Validate rating
   if (metadata.rating !== undefined) {
-    if (!metadata.rating || typeof metadata.rating !== 'object') {
-      throw new ValidationError('rating must be an object', 'rating');
+    if (!metadata.rating || typeof metadata.rating !== "object") {
+      throw new ValidationError("rating must be an object", "rating");
     }
     if (!Object.values(RatingType).includes(metadata.rating.type)) {
-      throw new ValidationError('rating.type must be a valid RatingType', 'rating.type');
+      throw new ValidationError(
+        "rating.type must be a valid RatingType",
+        "rating.type",
+      );
     }
-    if (typeof metadata.rating.value !== 'boolean' && typeof metadata.rating.value !== 'number') {
-      throw new ValidationError('rating.value must be a boolean or number', 'rating.value');
+    if (
+      typeof metadata.rating.value !== "boolean" &&
+      typeof metadata.rating.value !== "number"
+    ) {
+      throw new ValidationError(
+        "rating.value must be a boolean or number",
+        "rating.value",
+      );
     }
   }
 }
@@ -109,11 +148,11 @@ function validateMetadata(metadata: any): asserts metadata is MediaMetadata {
  * Validates playback state input
  */
 function validatePlaybackState(state: any): asserts state is PlaybackState {
-  if (typeof state !== 'number') {
-    throw new ValidationError('Playback state must be a number', 'state');
+  if (typeof state !== "number") {
+    throw new ValidationError("Playback state must be a number", "state");
   }
   if (!Object.values(PlaybackState).includes(state)) {
-    throw new ValidationError('Invalid playback state value', 'state');
+    throw new ValidationError("Invalid playback state value", "state");
   }
 }
 
@@ -121,51 +160,86 @@ function validatePlaybackState(state: any): asserts state is PlaybackState {
  * Validates position input
  */
 function validatePosition(position: any): asserts position is number {
-  if (typeof position !== 'number') {
-    throw new ValidationError('Position must be a number', 'position');
+  if (typeof position !== "number") {
+    throw new ValidationError("Position must be a number", "position");
   }
   if (position < 0) {
-    throw new ValidationError('Position must be non-negative', 'position');
+    throw new ValidationError("Position must be non-negative", "position");
   }
   if (!isFinite(position)) {
-    throw new ValidationError('Position must be finite', 'position');
+    throw new ValidationError("Position must be finite", "position");
+  }
+}
+
+/**
+ * Validates playback rate input
+ */
+function validatePlaybackRate(rate: any): asserts rate is number {
+  if (typeof rate !== "number") {
+    throw new ValidationError("Playback rate must be a number", "playbackRate");
+  }
+  if (rate < 0) {
+    throw new ValidationError(
+      "Playback rate must be non-negative",
+      "playbackRate",
+    );
+  }
+  if (rate > 10) {
+    throw new ValidationError(
+      "Playback rate must not exceed 10",
+      "playbackRate",
+    );
+  }
+  if (!isFinite(rate)) {
+    throw new ValidationError("Playback rate must be finite", "playbackRate");
   }
 }
 
 /**
  * Validates media control options
  */
-function validateMediaControlOptions(options: any): asserts options is MediaControlOptions {
-  if (!options || typeof options !== 'object') {
-    throw new ValidationError('Options must be an object', 'options');
+function validateMediaControlOptions(
+  options: any,
+): asserts options is MediaControlOptions {
+  if (!options || typeof options !== "object") {
+    throw new ValidationError("Options must be an object", "options");
   }
 
   if (options.capabilities !== undefined) {
     if (!Array.isArray(options.capabilities)) {
-      throw new ValidationError('capabilities must be an array', 'capabilities');
+      throw new ValidationError(
+        "capabilities must be an array",
+        "capabilities",
+      );
     }
     for (const capability of options.capabilities) {
       if (!Object.values(Command).includes(capability)) {
-        throw new ValidationError(`Invalid capability: ${capability}`, 'capabilities');
+        throw new ValidationError(
+          `Invalid capability: ${capability}`,
+          "capabilities",
+        );
       }
     }
   }
 
   if (options.notification !== undefined) {
-    if (typeof options.notification !== 'object') {
-      throw new ValidationError('notification must be an object', 'notification');
+    if (typeof options.notification !== "object") {
+      throw new ValidationError(
+        "notification must be an object",
+        "notification",
+      );
     }
   }
 
   if (options.ios !== undefined) {
-    if (typeof options.ios !== 'object') {
-      throw new ValidationError('ios must be an object', 'ios');
+    if (typeof options.ios !== "object") {
+      throw new ValidationError("ios must be an object", "ios");
     }
   }
 
   if (options.android !== undefined) {
-    if (typeof options.android !== 'object') {
-      throw new ValidationError('android must be an object', 'android');
+    if (typeof options.android !== "object") {
+      throw new ValidationError("android must be an object", "android");
     }
   }
 }
@@ -190,29 +264,29 @@ export enum PlaybackState {
  * Represents different types of media control commands
  */
 export enum Command {
-  PLAY = 'play',
-  PAUSE = 'pause',
-  STOP = 'stop',
-  NEXT_TRACK = 'nextTrack',
-  PREVIOUS_TRACK = 'previousTrack',
-  SKIP_FORWARD = 'skipForward',
-  SKIP_BACKWARD = 'skipBackward',
-  SEEK = 'seek',
-  SET_RATING = 'setRating',
-  VOLUME_UP = 'volumeUp',
-  VOLUME_DOWN = 'volumeDown',
+  PLAY = "play",
+  PAUSE = "pause",
+  STOP = "stop",
+  NEXT_TRACK = "nextTrack",
+  PREVIOUS_TRACK = "previousTrack",
+  SKIP_FORWARD = "skipForward",
+  SKIP_BACKWARD = "skipBackward",
+  SEEK = "seek",
+  SET_RATING = "setRating",
+  VOLUME_UP = "volumeUp",
+  VOLUME_DOWN = "volumeDown",
 }
 
 /**
  * Rating types for media content
  */
 export enum RatingType {
-  HEART = 'heart',
-  THUMBS_UP_DOWN = 'thumbsUpDown',
-  THREE_STARS = 'threeStars',
-  FOUR_STARS = 'fourStars',
-  FIVE_STARS = 'fiveStars',
-  PERCENTAGE = 'percentage',
+  HEART = "heart",
+  THUMBS_UP_DOWN = "thumbsUpDown",
+  THREE_STARS = "threeStars",
+  FOUR_STARS = "fourStars",
+  FIVE_STARS = "fiveStars",
+  PERCENTAGE = "percentage",
 }
 
 /**
@@ -254,7 +328,7 @@ export interface MediaMetadata {
 
 /**
  * Configuration options for media controls
- * 
+ *
  * Note: Audio focus management should be handled by your media player,
  * not by this control module.
  */
@@ -325,8 +399,15 @@ declare class ExpoMediaControlNativeModule extends NativeModule {
   /**
    * Update the current playback state and position
    * Updates the system about current playback status
+   * @param state - The playback state
+   * @param position - The current position in seconds (optional)
+   * @param playbackRate - The playback rate/speed (optional, defaults to 1.0 when playing, 0.0 when paused)
    */
-  updatePlaybackState(state: PlaybackState, position?: number): Promise<void>;
+  updatePlaybackState(
+    state: PlaybackState,
+    position?: number,
+    playbackRate?: number,
+  ): Promise<void>;
 
   /**
    * Reset all media control information to default state
@@ -358,9 +439,10 @@ declare class ExpoMediaControlNativeModule extends NativeModule {
 // =============================================
 
 // Create the native module instance
-const nativeModule = requireNativeModule<ExpoMediaControlNativeModule>('ExpoMediaControl');
+const nativeModule =
+  requireNativeModule<ExpoMediaControlNativeModule>("ExpoMediaControl");
 
-console.log('📱 JS: Native module loaded:', nativeModule);
+console.log("📱 JS: Native module loaded:", nativeModule);
 
 /**
  * Map to store event listeners for manual management
@@ -382,12 +464,14 @@ class ExtendedExpoMediaControlModule {
   // NATIVE METHOD PROXIES
   // Forward calls to the native module with proper error handling
   // =============================================
-  
+
   /**
    * Enable media controls with specified configuration
    * Initializes the media session and sets up remote control handlers
    */
-  enableMediaControls = async (options?: MediaControlOptions): Promise<void> => {
+  enableMediaControls = async (
+    options?: MediaControlOptions,
+  ): Promise<void> => {
     try {
       // Validate input
       if (options !== undefined) {
@@ -397,17 +481,24 @@ class ExtendedExpoMediaControlModule {
       await nativeModule.enableMediaControls(options);
 
       // Add native event listeners
-      (nativeModule as any).addListener('mediaControlEvent', this._dispatchMediaControlEvent);
-      (nativeModule as any).addListener('volumeChangeEvent', this._dispatchVolumeChangeEvent);
+      (nativeModule as any).addListener(
+        "mediaControlEvent",
+        this._dispatchMediaControlEvent,
+      );
+      (nativeModule as any).addListener(
+        "volumeChangeEvent",
+        this._dispatchVolumeChangeEvent,
+      );
     } catch (error) {
       if (error instanceof ValidationError) {
         throw error;
       }
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
       const nativeError = new NativeError(
         `Failed to enable media controls: ${errorMessage}`,
-        'ENABLE_FAILED',
-        error instanceof Error ? error : undefined
+        "ENABLE_FAILED",
+        error instanceof Error ? error : undefined,
       );
       console.error(nativeError.message);
       throw nativeError;
@@ -423,10 +514,10 @@ class ExtendedExpoMediaControlModule {
       await nativeModule.disableMediaControls();
 
       // Remove all native event listeners
-      (nativeModule as any).removeAllListeners('mediaControlEvent');
-      (nativeModule as any).removeAllListeners('volumeChangeEvent');
+      (nativeModule as any).removeAllListeners("mediaControlEvent");
+      (nativeModule as any).removeAllListeners("volumeChangeEvent");
     } catch (error) {
-      console.error('Failed to disable media controls:', error);
+      console.error("Failed to disable media controls:", error);
       throw error;
     }
   };
@@ -437,28 +528,35 @@ class ExtendedExpoMediaControlModule {
    */
   updateMetadata = async (metadata: MediaMetadata): Promise<void> => {
     try {
-      console.log('📱 JS: Updating metadata:', JSON.stringify(metadata, null, 2));
+      console.log(
+        "📱 JS: Updating metadata:",
+        JSON.stringify(metadata, null, 2),
+      );
       // Validate input
       validateMetadata(metadata);
 
       // Filter out undefined values to prevent native conversion errors
       // This ensures robust handling of optional metadata fields
       const cleanMetadata = Object.fromEntries(
-        Object.entries(metadata).filter(([_, value]) => value !== undefined)
+        Object.entries(metadata).filter(([_, value]) => value !== undefined),
       ) as MediaMetadata;
 
-      console.log('📱 JS: Sending cleaned metadata to native:', JSON.stringify(cleanMetadata, null, 2));
+      console.log(
+        "📱 JS: Sending cleaned metadata to native:",
+        JSON.stringify(cleanMetadata, null, 2),
+      );
 
       await nativeModule.updateMetadata(cleanMetadata);
     } catch (error) {
       if (error instanceof ValidationError) {
         throw error;
       }
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
       const nativeError = new NativeError(
         `Failed to update metadata: ${errorMessage}`,
-        'UPDATE_METADATA_FAILED',
-        error instanceof Error ? error : undefined
+        "UPDATE_METADATA_FAILED",
+        error instanceof Error ? error : undefined,
       );
       console.error(nativeError.message);
       throw nativeError;
@@ -468,25 +566,36 @@ class ExtendedExpoMediaControlModule {
   /**
    * Update the current playback state and position
    * Updates the system about current playback status
+   * @param state - The playback state
+   * @param position - The current position in seconds (optional)
+   * @param playbackRate - The playback rate/speed (optional, defaults to 1.0 when playing, 0.0 when paused)
    */
-  updatePlaybackState = async (state: PlaybackState, position?: number): Promise<void> => {
+  updatePlaybackState = async (
+    state: PlaybackState,
+    position?: number,
+    playbackRate?: number,
+  ): Promise<void> => {
     try {
       // Validate input
       validatePlaybackState(state);
       if (position !== undefined) {
         validatePosition(position);
       }
+      if (playbackRate !== undefined) {
+        validatePlaybackRate(playbackRate);
+      }
 
-      await nativeModule.updatePlaybackState(state, position);
+      await nativeModule.updatePlaybackState(state, position, playbackRate);
     } catch (error) {
       if (error instanceof ValidationError) {
         throw error;
       }
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
       const nativeError = new NativeError(
         `Failed to update playback state: ${errorMessage}`,
-        'UPDATE_STATE_FAILED',
-        error instanceof Error ? error : undefined
+        "UPDATE_STATE_FAILED",
+        error instanceof Error ? error : undefined,
       );
       console.error(nativeError.message);
       throw nativeError;
@@ -501,7 +610,7 @@ class ExtendedExpoMediaControlModule {
     try {
       await nativeModule.resetControls();
     } catch (error) {
-      console.error('Failed to reset controls:', error);
+      console.error("Failed to reset controls:", error);
       throw error;
     }
   };
@@ -514,7 +623,7 @@ class ExtendedExpoMediaControlModule {
     try {
       return await nativeModule.isEnabled();
     } catch (error) {
-      console.error('Failed to check if controls are enabled:', error);
+      console.error("Failed to check if controls are enabled:", error);
       return false;
     }
   };
@@ -527,7 +636,7 @@ class ExtendedExpoMediaControlModule {
     try {
       return await nativeModule.getCurrentMetadata();
     } catch (error) {
-      console.error('Failed to get current metadata:', error);
+      console.error("Failed to get current metadata:", error);
       return null;
     }
   };
@@ -540,11 +649,11 @@ class ExtendedExpoMediaControlModule {
     try {
       return await nativeModule.getCurrentState();
     } catch (error) {
-      console.error('Failed to get current state:', error);
+      console.error("Failed to get current state:", error);
       return PlaybackState.NONE;
     }
   };
-  
+
   // =============================================
   // SIMPLIFIED EVENT HANDLING METHODS
   // Use manual listener management for better control
@@ -557,9 +666,9 @@ class ExtendedExpoMediaControlModule {
    * @returns Function to remove the listener
    */
   addListener = (listener: MediaControlEventListener): (() => void) => {
-    console.log('📱 JS: Adding media control event listener');
+    console.log("📱 JS: Adding media control event listener");
     eventListeners.mediaControl.push(listener);
-    
+
     // Return removal function
     return () => {
       const index = eventListeners.mediaControl.indexOf(listener);
@@ -577,7 +686,7 @@ class ExtendedExpoMediaControlModule {
    */
   addVolumeChangeListener = (listener: VolumeChangeListener): (() => void) => {
     eventListeners.volumeChange.push(listener);
-    
+
     // Return removal function
     return () => {
       const index = eventListeners.volumeChange.indexOf(listener);
@@ -607,13 +716,13 @@ class ExtendedExpoMediaControlModule {
    * This will be called by the native modules when control events occur
    */
   _dispatchMediaControlEvent = (event: MediaControlEvent): void => {
-            console.log('📱 JS: Dispatching media control event:', event);
+    console.log("📱 JS: Dispatching media control event:", event);
 
-    eventListeners.mediaControl.forEach(listener => {
+    eventListeners.mediaControl.forEach((listener) => {
       try {
         listener(event);
       } catch (error) {
-        console.error('Error in media control event listener:', error);
+        console.error("Error in media control event listener:", error);
       }
     });
   };
@@ -623,11 +732,11 @@ class ExtendedExpoMediaControlModule {
    * This will be called by the native modules when volume changes
    */
   _dispatchVolumeChangeEvent = (change: VolumeChange): void => {
-    eventListeners.volumeChange.forEach(listener => {
+    eventListeners.volumeChange.forEach((listener) => {
       try {
         listener(change);
       } catch (error) {
-        console.error('Error in volume change event listener:', error);
+        console.error("Error in volume change event listener:", error);
       }
     });
   };
