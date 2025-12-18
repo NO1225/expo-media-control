@@ -4,10 +4,7 @@
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
   <uses-permission android:name="android.permission.WAKE_LOCK" />
   <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-  
-  <!-- Optional permissions for enhanced functionality -->
-  <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-  
+
   <application>
     <!-- Foreground service for media playback that handles media buttons directly -->
     <service
@@ -21,9 +18,9 @@
         <action android:name="android.intent.action.MEDIA_BUTTON" />
       </intent-filter>
     </service>
-    
+
     <!-- Media button receiver that forwards to our service -->
-    <receiver 
+    <receiver
       android:name="androidx.media.session.MediaButtonReceiver"
       android:exported="true">
       <intent-filter>
