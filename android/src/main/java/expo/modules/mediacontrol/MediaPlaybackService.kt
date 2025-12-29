@@ -480,6 +480,19 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
   }
 
   private fun createNotification(): Notification {
+    // Create intent to launch main activity when notification is tapped
+    val launchIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
+      flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
+    }
+    val contentPendingIntent = if (launchIntent != null) {
+      val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+      } else {
+        PendingIntent.FLAG_UPDATE_CURRENT
+      }
+      PendingIntent.getActivity(this, 0, launchIntent, flags)
+    } else null
+
     val builder = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
       .setSmallIcon(getSmallIconResource())
       .setContentTitle(mediaMetadata?.getString(MediaMetadataCompat.METADATA_KEY_TITLE) ?: "Unknown")
@@ -489,6 +502,7 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
       .setPriority(NotificationCompat.PRIORITY_LOW)
       .setOngoing(currentPlaybackState == PlaybackStateCompat.STATE_PLAYING)
       .setShowWhen(false)
+      .setContentIntent(contentPendingIntent)
 
     // Add media style
     builder.setStyle(
