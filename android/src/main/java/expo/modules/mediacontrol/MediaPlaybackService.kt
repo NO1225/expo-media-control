@@ -482,7 +482,7 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
   private fun createNotification(): Notification {
     // Create intent to launch main activity when notification is tapped
     val launchIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
-      flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
+      flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
     }
     val contentPendingIntent = if (launchIntent != null) {
       val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
