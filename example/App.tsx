@@ -43,10 +43,10 @@ const sampleTracks = [
   },
   {
     id: '3',
-    title: 'Piano Sample',
+    title: 'Local Asset Test',
     artist: 'Demo Artist',
-    album: 'Demo Album',
-    artWork: 'https://images.unsplash.com/photo-1752409487629-5459053b07d3?ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&q=80&w=687',
+    album: 'Local Asset Album',
+    artWork: Image.resolveAssetSource(require('./assets/Streawbery.jpg')).uri,
     url: 'https://download.samplelib.com/mp3/sample-15s.mp3'
   }
 ];

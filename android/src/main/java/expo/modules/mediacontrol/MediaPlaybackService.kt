@@ -43,6 +43,10 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
     private const val MEDIA_ROOT_ID = "expo_media_control_root"
     private const val EMPTY_MEDIA_ROOT_ID = "empty_root"
     
+    // Request codes for PendingIntents (distinct codes prevent potential conflicts)
+    private const val REQUEST_CODE_CONTENT_INTENT = 1  // For activity launch from notification tap
+    private const val REQUEST_CODE_MEDIA_ACTION = 2    // For media action broadcasts
+    
     // Action constants for media buttons
     const val ACTION_PLAY = "expo.modules.mediacontrol.PLAY"
     const val ACTION_PAUSE = "expo.modules.mediacontrol.PAUSE"
@@ -490,7 +494,7 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
       } else {
         PendingIntent.FLAG_UPDATE_CURRENT
       }
-      PendingIntent.getActivity(this, 0, launchIntent, flags)
+      PendingIntent.getActivity(this, REQUEST_CODE_CONTENT_INTENT, launchIntent, flags)
     } else null
 
     val builder = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
@@ -591,7 +595,7 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
     } else {
       PendingIntent.FLAG_UPDATE_CURRENT
     }
-    return PendingIntent.getBroadcast(this, 0, intent, flags)
+    return PendingIntent.getBroadcast(this, REQUEST_CODE_MEDIA_ACTION, intent, flags)
   }
 
   private fun getSmallIconResource(): Int {
