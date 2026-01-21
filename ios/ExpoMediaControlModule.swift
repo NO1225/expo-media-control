@@ -252,9 +252,13 @@ public class ExpoMediaControlModule: Module {
     if let album = metadata["album"] as? String {
       nowPlayingInfo[MPMediaItemPropertyAlbumTitle] = album
     }
-    
+
     if let duration = metadata["duration"] as? Double {
       nowPlayingInfo[MPMediaItemPropertyPlaybackDuration] = duration
+    }
+
+    if let isLiveStream = metadata["isLiveStream"] as? Bool {
+      nowPlayingInfo[MPNowPlayingInfoPropertyIsLiveStream] = NSNumber(value: isLiveStream)
     }
     
     if let genre = metadata["genre"] as? String {
