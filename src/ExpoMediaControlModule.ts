@@ -324,6 +324,7 @@ export interface MediaMetadata {
   rating?: MediaRating;
   color?: string;
   colorized?: boolean;
+  isLiveStream?: boolean;
 }
 
 /**

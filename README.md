@@ -280,6 +280,7 @@ interface MediaMetadata {
   rating?: MediaRating;
   color?: string;
   colorized?: boolean;
+  isLiveStream?: boolean;
 }
 
 await MediaControl.updateMetadata({
@@ -762,6 +763,7 @@ interface MediaMetadata {
   rating?: MediaRating;             // Track rating
   color?: string;                   // Notification color (Android)
   colorized?: boolean;              // Use colorized notification (Android)
+  isLiveStream?: boolean;           // Flags track as a live stream (iOS)
 }
 ```
 
