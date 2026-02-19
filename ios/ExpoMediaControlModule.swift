@@ -35,6 +35,9 @@ public class ExpoMediaControlModule: Module {
   
   /// Whether rating controls are currently available
   private var isRatingEnabled: Bool = false
+
+  /// Enabled capabilities (nil = all enabled for backward compatibility)
+  private var enabledCapabilities: [String]? = nil
   
   /// Remote command center reference for managing remote controls
   private var remoteCommandCenter: MPRemoteCommandCenter {
@@ -166,6 +169,9 @@ public class ExpoMediaControlModule: Module {
       // Store configuration options
       if let opts = options {
         controlOptions = opts
+        enabledCapabilities = opts["capabilities"] as? [String]
+      } else {
+        enabledCapabilities = nil
       }
       
       // Configure audio session for playback (this might fail with OSStatus -50)
@@ -226,6 +232,7 @@ public class ExpoMediaControlModule: Module {
     currentPlaybackRate = 1.0
     controlOptions.removeAll()
     isRatingEnabled = false
+    enabledCapabilities = nil
     
     print("📱 Media controls disabled successfully")
   }
@@ -521,92 +528,126 @@ public class ExpoMediaControlModule: Module {
   // =============================================
 
   /**
+   * Check if a capability is enabled
+   * Returns true if enabledCapabilities is nil (all enabled) or contains the command
+   */
+  private func isCapabilityEnabled(_ command: String) -> Bool {
+    guard let caps = enabledCapabilities else { return true }
+    return caps.contains(command)
+  }
+
+  /**
    * Register all remote command handlers
    * Sets up handlers for play, pause, next, previous, and other media controls
+   * Respects the capabilities list - only enables commands that are in the list
    */
   private func registerRemoteCommandHandlers() {
     let commandCenter = remoteCommandCenter
-    
-    // Play command - using closure-based approach (more reliable for Expo modules)
-    commandCenter.playCommand.isEnabled = true
-    commandCenter.playCommand.addTarget { [weak self] event in
-      print("📱 iOS: Play command received from remote control")
-      self?.handleRemoteCommand(command: "play", data: nil)
-      return .success
+
+    // Play command
+    if isCapabilityEnabled("play") {
+      commandCenter.playCommand.isEnabled = true
+      commandCenter.playCommand.addTarget { [weak self] event in
+        self?.handleRemoteCommand(command: "play", data: nil)
+        return .success
+      }
+    } else {
+      commandCenter.playCommand.isEnabled = false
     }
-    
+
     // Pause command
-    commandCenter.pauseCommand.isEnabled = true
-    commandCenter.pauseCommand.addTarget { [weak self] event in
-      print("📱 iOS: Pause command received from remote control")
-      self?.handleRemoteCommand(command: "pause", data: nil)
-      return .success
+    if isCapabilityEnabled("pause") {
+      commandCenter.pauseCommand.isEnabled = true
+      commandCenter.pauseCommand.addTarget { [weak self] event in
+        self?.handleRemoteCommand(command: "pause", data: nil)
+        return .success
+      }
+    } else {
+      commandCenter.pauseCommand.isEnabled = false
     }
-    
+
     // Stop command
-    commandCenter.stopCommand.isEnabled = true
-    commandCenter.stopCommand.addTarget { [weak self] event in
-      print("📱 iOS: Stop command received from remote control")
-      self?.handleRemoteCommand(command: "stop", data: nil)
-      return .success
+    if isCapabilityEnabled("stop") {
+      commandCenter.stopCommand.isEnabled = true
+      commandCenter.stopCommand.addTarget { [weak self] event in
+        self?.handleRemoteCommand(command: "stop", data: nil)
+        return .success
+      }
+    } else {
+      commandCenter.stopCommand.isEnabled = false
     }
-    
+
     // Next track command
-    commandCenter.nextTrackCommand.isEnabled = true
-    commandCenter.nextTrackCommand.addTarget { [weak self] event in
-      print("📱 iOS: Next track command received from remote control")
-      self?.handleRemoteCommand(command: "nextTrack", data: nil)
-      return .success
+    if isCapabilityEnabled("nextTrack") {
+      commandCenter.nextTrackCommand.isEnabled = true
+      commandCenter.nextTrackCommand.addTarget { [weak self] event in
+        self?.handleRemoteCommand(command: "nextTrack", data: nil)
+        return .success
+      }
+    } else {
+      commandCenter.nextTrackCommand.isEnabled = false
     }
-    
+
     // Previous track command
-    commandCenter.previousTrackCommand.isEnabled = true
-    commandCenter.previousTrackCommand.addTarget { [weak self] event in
-      print("📱 iOS: Previous track command received from remote control")
-      self?.handleRemoteCommand(command: "previousTrack", data: nil)
-      return .success
+    if isCapabilityEnabled("previousTrack") {
+      commandCenter.previousTrackCommand.isEnabled = true
+      commandCenter.previousTrackCommand.addTarget { [weak self] event in
+        self?.handleRemoteCommand(command: "previousTrack", data: nil)
+        return .success
+      }
+    } else {
+      commandCenter.previousTrackCommand.isEnabled = false
     }
-    
+
     // Skip forward command
-    if let skipInterval = getSkipInterval() {
-      commandCenter.skipForwardCommand.isEnabled = true
-      commandCenter.skipForwardCommand.preferredIntervals = [NSNumber(value: skipInterval)]
-      commandCenter.skipForwardCommand.addTarget { [weak self] event in
-        print("📱 iOS: Skip forward command received from remote control")
-        var data: [String: Any] = [:]
-        if let skipEvent = event as? MPSkipIntervalCommandEvent {
-          data["interval"] = skipEvent.interval
+    if isCapabilityEnabled("skipForward") {
+      if let skipInterval = getSkipInterval() {
+        commandCenter.skipForwardCommand.isEnabled = true
+        commandCenter.skipForwardCommand.preferredIntervals = [NSNumber(value: skipInterval)]
+        commandCenter.skipForwardCommand.addTarget { [weak self] event in
+          var data: [String: Any] = [:]
+          if let skipEvent = event as? MPSkipIntervalCommandEvent {
+            data["interval"] = skipEvent.interval
+          }
+          self?.handleRemoteCommand(command: "skipForward", data: data)
+          return .success
         }
-        self?.handleRemoteCommand(command: "skipForward", data: data)
-        return .success
       }
+    } else {
+      commandCenter.skipForwardCommand.isEnabled = false
     }
-    
+
     // Skip backward command
-    if let skipInterval = getSkipInterval() {
-      commandCenter.skipBackwardCommand.isEnabled = true
-      commandCenter.skipBackwardCommand.preferredIntervals = [NSNumber(value: skipInterval)]
-      commandCenter.skipBackwardCommand.addTarget { [weak self] event in
-        print("📱 iOS: Skip backward command received from remote control")
-        var data: [String: Any] = [:]
-        if let skipEvent = event as? MPSkipIntervalCommandEvent {
-          data["interval"] = skipEvent.interval
+    if isCapabilityEnabled("skipBackward") {
+      if let skipInterval = getSkipInterval() {
+        commandCenter.skipBackwardCommand.isEnabled = true
+        commandCenter.skipBackwardCommand.preferredIntervals = [NSNumber(value: skipInterval)]
+        commandCenter.skipBackwardCommand.addTarget { [weak self] event in
+          var data: [String: Any] = [:]
+          if let skipEvent = event as? MPSkipIntervalCommandEvent {
+            data["interval"] = skipEvent.interval
+          }
+          self?.handleRemoteCommand(command: "skipBackward", data: data)
+          return .success
         }
-        self?.handleRemoteCommand(command: "skipBackward", data: data)
+      }
+    } else {
+      commandCenter.skipBackwardCommand.isEnabled = false
+    }
+
+    // Seek command
+    if isCapabilityEnabled("seek") {
+      commandCenter.changePlaybackPositionCommand.isEnabled = true
+      commandCenter.changePlaybackPositionCommand.addTarget { [weak self] event in
+        var data: [String: Any] = [:]
+        if let seekEvent = event as? MPChangePlaybackPositionCommandEvent {
+          data["position"] = seekEvent.positionTime
+        }
+        self?.handleRemoteCommand(command: "seek", data: data)
         return .success
       }
-    }
-    
-    // Seek command
-    commandCenter.changePlaybackPositionCommand.isEnabled = true
-    commandCenter.changePlaybackPositionCommand.addTarget { [weak self] event in
-      print("📱 iOS: Change playback position command received from remote control")
-      var data: [String: Any] = [:]
-      if let seekEvent = event as? MPChangePlaybackPositionCommandEvent {
-        data["position"] = seekEvent.positionTime
-      }
-      self?.handleRemoteCommand(command: "seek", data: data)
-      return .success
+    } else {
+      commandCenter.changePlaybackPositionCommand.isEnabled = false
     }
     
     print("📱 Remote command handlers registered")

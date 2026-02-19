@@ -74,6 +74,9 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
 
   // Configuration options
   private var skipInterval = 15.0 // Default 15 seconds
+  private var artworkLoadJob: Job? = null // Cancel stale artwork loads on track change
+  private var capabilities: List<String>? = null // null = all enabled (backward compat)
+  private var compactCapabilities: List<String>? = null
   
   // Notification management
   private val notificationManager: NotificationManager by lazy {
@@ -359,6 +362,16 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
     }
   }
 
+  fun updateCapabilities(
+    caps: List<String>?,
+    compactCaps: List<String>?
+  ) {
+    capabilities = caps
+    compactCapabilities = compactCaps
+    updatePlaybackState()
+    updateNotification()
+  }
+
   fun updateMetadata(metadata: Map<String, Any>) {
     val builder = MediaMetadataCompat.Builder()
     
@@ -388,21 +401,23 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
       if (artworkData is Map<*, *>) {
         val uri = artworkData["uri"]?.toString()
         uri?.let { artworkUri ->
-          serviceScope.launch {
+          // Cancel any in-flight artwork load to prevent stale results overwriting newer metadata
+          artworkLoadJob?.cancel()
+          artworkLoadJob = serviceScope.launch {
             try {
               val bitmap = loadArtwork(artworkUri)
-              bitmap?.let {
-                builder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, it)
-                mediaMetadata = builder.build()
-                mediaSession.setMetadata(mediaMetadata)
-                updateNotification()
+              if (bitmap != null) {
+                builder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, bitmap)
+              } else {
+                println("⚠️ Artwork not found at URI: $artworkUri, updating metadata without artwork")
               }
             } catch (e: Exception) {
-              // Fallback without artwork
-              mediaMetadata = builder.build()
-              mediaSession.setMetadata(mediaMetadata)
-              updateNotification()
+              println("⚠️ Failed to load artwork: ${e.message}, updating metadata without artwork")
             }
+            // Always update metadata, with or without artwork
+            mediaMetadata = builder.build()
+            mediaSession.setMetadata(mediaMetadata)
+            updateNotification()
           }
           return // Exit early to handle async artwork loading
         }
@@ -453,15 +468,34 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
   }
 
   private fun getAvailableActions(): Long {
-    return PlaybackStateCompat.ACTION_PLAY or
-           PlaybackStateCompat.ACTION_PAUSE or
-           PlaybackStateCompat.ACTION_STOP or
-           PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
-           PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS or
-           PlaybackStateCompat.ACTION_SEEK_TO or
-           PlaybackStateCompat.ACTION_FAST_FORWARD or
-           PlaybackStateCompat.ACTION_REWIND or
-           PlaybackStateCompat.ACTION_SET_RATING
+    val caps = capabilities ?: return (
+        PlaybackStateCompat.ACTION_PLAY or
+        PlaybackStateCompat.ACTION_PAUSE or
+        PlaybackStateCompat.ACTION_STOP or
+        PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
+        PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS or
+        PlaybackStateCompat.ACTION_SEEK_TO or
+        PlaybackStateCompat.ACTION_FAST_FORWARD or
+        PlaybackStateCompat.ACTION_REWIND or
+        PlaybackStateCompat.ACTION_SET_RATING
+    )
+
+    var actions = 0L
+    for (cap in caps) {
+      actions = actions or when (cap) {
+        "play" -> PlaybackStateCompat.ACTION_PLAY
+        "pause" -> PlaybackStateCompat.ACTION_PAUSE
+        "stop" -> PlaybackStateCompat.ACTION_STOP
+        "nextTrack" -> PlaybackStateCompat.ACTION_SKIP_TO_NEXT
+        "previousTrack" -> PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS
+        "seek" -> PlaybackStateCompat.ACTION_SEEK_TO
+        "skipForward" -> PlaybackStateCompat.ACTION_FAST_FORWARD
+        "skipBackward" -> PlaybackStateCompat.ACTION_REWIND
+        "setRating" -> PlaybackStateCompat.ACTION_SET_RATING
+        else -> 0L
+      }
+    }
+    return actions
   }
 
   // =============================================
@@ -508,17 +542,19 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
       .setShowWhen(false)
       .setContentIntent(contentPendingIntent)
 
+    // Add actions and compute compact view indices
+    val addedCommands = addNotificationActions(builder)
+    val compactIndices = computeCompactViewIndices(addedCommands)
+
     // Add media style
-    builder.setStyle(
-      MediaNotificationCompat.MediaStyle()
+    val mediaStyle = MediaNotificationCompat.MediaStyle()
         .setMediaSession(mediaSession.sessionToken)
-        .setShowActionsInCompactView(0, 1, 2)
         .setCancelButtonIntent(createPendingIntent(ACTION_STOP))
         .setShowCancelButton(true)
-    )
-
-    // Add actions
-    addNotificationActions(builder)
+    if (compactIndices.isNotEmpty()) {
+      mediaStyle.setShowActionsInCompactView(*compactIndices)
+    }
+    builder.setStyle(mediaStyle)
 
     return builder.build()
   }
@@ -555,35 +591,107 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
     }
   }
 
-  private fun addNotificationActions(builder: NotificationCompat.Builder) {
-    // Previous
-    builder.addAction(
-      android.R.drawable.ic_media_previous,
-      "Previous",
-      createPendingIntent(ACTION_PREVIOUS)
-    )
+  private fun addNotificationActions(builder: NotificationCompat.Builder): List<String> {
+    val addedCommands = mutableListOf<String>()
 
-    // Play/Pause
-    if (currentPlaybackState == PlaybackStateCompat.STATE_PLAYING) {
-      builder.addAction(
-        android.R.drawable.ic_media_pause,
-        "Pause",
-        createPendingIntent(ACTION_PAUSE)
-      )
+    // Build ordered list of notification-capable commands from capabilities
+    val commandsToShow: List<String> = if (capabilities != null) {
+      val seen = mutableSetOf<String>()
+      val result = mutableListOf<String>()
+      for (cap in capabilities!!) {
+        val normalized = if (cap == "play" || cap == "pause") "playPause" else cap
+        if (normalized !in seen && normalized in setOf(
+            "playPause", "previousTrack", "nextTrack",
+            "skipForward", "skipBackward", "stop"
+          )) {
+          seen.add(normalized)
+          result.add(normalized)
+        }
+      }
+      result
     } else {
-      builder.addAction(
-        android.R.drawable.ic_media_play,
-        "Play",
-        createPendingIntent(ACTION_PLAY)
-      )
+      listOf("previousTrack", "playPause", "nextTrack")
     }
 
-    // Next
-    builder.addAction(
-      android.R.drawable.ic_media_next,
-      "Next",
-      createPendingIntent(ACTION_NEXT)
-    )
+    for (cmd in commandsToShow) {
+      when (cmd) {
+        "previousTrack" -> {
+          builder.addAction(
+            android.R.drawable.ic_media_previous,
+            "Previous",
+            createPendingIntent(ACTION_PREVIOUS)
+          )
+          addedCommands.add("previousTrack")
+        }
+        "playPause" -> {
+          if (currentPlaybackState == PlaybackStateCompat.STATE_PLAYING) {
+            builder.addAction(
+              android.R.drawable.ic_media_pause,
+              "Pause",
+              createPendingIntent(ACTION_PAUSE)
+            )
+          } else {
+            builder.addAction(
+              android.R.drawable.ic_media_play,
+              "Play",
+              createPendingIntent(ACTION_PLAY)
+            )
+          }
+          addedCommands.add("playPause")
+        }
+        "nextTrack" -> {
+          builder.addAction(
+            android.R.drawable.ic_media_next,
+            "Next",
+            createPendingIntent(ACTION_NEXT)
+          )
+          addedCommands.add("nextTrack")
+        }
+        "skipForward" -> {
+          builder.addAction(
+            android.R.drawable.ic_media_ff,
+            "Skip Forward",
+            createPendingIntent(ACTION_SKIP_FORWARD)
+          )
+          addedCommands.add("skipForward")
+        }
+        "skipBackward" -> {
+          builder.addAction(
+            android.R.drawable.ic_media_rew,
+            "Skip Backward",
+            createPendingIntent(ACTION_SKIP_BACKWARD)
+          )
+          addedCommands.add("skipBackward")
+        }
+        "stop" -> {
+          builder.addAction(
+            android.R.drawable.ic_media_pause,
+            "Stop",
+            createPendingIntent(ACTION_STOP)
+          )
+          addedCommands.add("stop")
+        }
+      }
+    }
+
+    return addedCommands
+  }
+
+  private fun computeCompactViewIndices(addedCommands: List<String>): IntArray {
+    val compactCaps = compactCapabilities
+    if (compactCaps != null) {
+      val indices = mutableListOf<Int>()
+      for (cap in compactCaps) {
+        val normalized = if (cap == "play" || cap == "pause") "playPause" else cap
+        val index = addedCommands.indexOf(normalized)
+        if (index >= 0 && index !in indices && indices.size < 3) {
+          indices.add(index)
+        }
+      }
+      return indices.toIntArray()
+    }
+    // Default: first 3 (or fewer)
+    return (0 until minOf(3, addedCommands.size)).toList().toIntArray()
   }
 
   private fun createPendingIntent(action: String): PendingIntent {

@@ -222,6 +222,29 @@ function validateMediaControlOptions(
     }
   }
 
+  if (options.compactCapabilities !== undefined) {
+    if (!Array.isArray(options.compactCapabilities)) {
+      throw new ValidationError(
+        "compactCapabilities must be an array",
+        "compactCapabilities",
+      );
+    }
+    if (options.compactCapabilities.length > 3) {
+      throw new ValidationError(
+        "compactCapabilities can have at most 3 items",
+        "compactCapabilities",
+      );
+    }
+    for (const capability of options.compactCapabilities) {
+      if (!Object.values(Command).includes(capability)) {
+        throw new ValidationError(
+          `Invalid compact capability: ${capability}`,
+          "compactCapabilities",
+        );
+      }
+    }
+  }
+
   if (options.notification !== undefined) {
     if (typeof options.notification !== "object") {
       throw new ValidationError(
@@ -335,6 +358,7 @@ export interface MediaMetadata {
  */
 export interface MediaControlOptions {
   capabilities?: Command[];
+  compactCapabilities?: Command[];
   notification?: {
     icon?: string;
     largeIcon?: MediaArtwork;

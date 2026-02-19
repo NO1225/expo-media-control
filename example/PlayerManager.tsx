@@ -342,6 +342,11 @@ export class PlayerManager {
                 Command.SKIP_BACKWARD,
                 Command.SEEK,
             ],
+            compactCapabilities: [
+                Command.PREVIOUS_TRACK,
+                Command.PLAY,
+                Command.NEXT_TRACK,
+            ],
             notification: {
                 // icon: 'ic_music_note', // For bare workflow only
                 color: '#2196F3',
