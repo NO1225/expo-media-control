@@ -74,6 +74,7 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
 
   // Configuration options
   private var skipInterval = 15.0 // Default 15 seconds
+  private var artworkLoadJob: Job? = null // Cancel stale artwork loads on track change
   
   // Notification management
   private val notificationManager: NotificationManager by lazy {
@@ -388,21 +389,23 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
       if (artworkData is Map<*, *>) {
         val uri = artworkData["uri"]?.toString()
         uri?.let { artworkUri ->
-          serviceScope.launch {
+          // Cancel any in-flight artwork load to prevent stale results overwriting newer metadata
+          artworkLoadJob?.cancel()
+          artworkLoadJob = serviceScope.launch {
             try {
               val bitmap = loadArtwork(artworkUri)
-              bitmap?.let {
-                builder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, it)
-                mediaMetadata = builder.build()
-                mediaSession.setMetadata(mediaMetadata)
-                updateNotification()
+              if (bitmap != null) {
+                builder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, bitmap)
+              } else {
+                println("⚠️ Artwork not found at URI: $artworkUri, updating metadata without artwork")
               }
             } catch (e: Exception) {
-              // Fallback without artwork
-              mediaMetadata = builder.build()
-              mediaSession.setMetadata(mediaMetadata)
-              updateNotification()
+              println("⚠️ Failed to load artwork: ${e.message}, updating metadata without artwork")
             }
+            // Always update metadata, with or without artwork
+            mediaMetadata = builder.build()
+            mediaSession.setMetadata(mediaMetadata)
+            updateNotification()
           }
           return // Exit early to handle async artwork loading
         }
