@@ -48,7 +48,15 @@ const sampleTracks = [
     album: 'Local Asset Album',
     artWork: Image.resolveAssetSource(require('./assets/Streawbery.jpg')).uri,
     url: 'https://download.samplelib.com/mp3/sample-15s.mp3'
-  }
+  },
+  {
+    id: '4',
+    title: 'Missing Artwork Test',
+    artist: 'Bug Fix验证',
+    album: 'Issue #17 Test',
+    artWork: 'file:///nonexistent/path/fake_image.png',
+    url: 'https://download.samplelib.com/mp3/sample-15s.mp3'
+  },
 ];
 /**
  * Comprehensive Example App for Expo Media Control

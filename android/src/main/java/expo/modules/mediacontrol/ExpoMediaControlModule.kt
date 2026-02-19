@@ -59,7 +59,14 @@ class ExpoMediaControlModule : Module() {
             if (androidConfig != null) {
               mediaService?.updateConfiguration(androidConfig)
             }
-            
+
+            // Forward capabilities to service
+            @Suppress("UNCHECKED_CAST")
+            val caps = controlOptions["capabilities"] as? List<String>
+            @Suppress("UNCHECKED_CAST")
+            val compactCaps = controlOptions["compactCapabilities"] as? List<String>
+            mediaService?.updateCapabilities(caps, compactCaps)
+
             if (currentMetadata.isNotEmpty()) {
               mediaService?.updateMetadata(currentMetadata.toMap())
             }
