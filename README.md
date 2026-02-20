@@ -110,6 +110,11 @@ export default function MusicPlayer() {
             Command.SKIP_FORWARD,
             Command.SKIP_BACKWARD,
           ],
+          compactCapabilities: [
+            Command.PREVIOUS_TRACK,
+            Command.PLAY,
+            Command.NEXT_TRACK,
+          ],
           notification: {
             icon: 'ic_music_note',
             color: '#1976D2',
@@ -230,7 +235,8 @@ Enables media controls with specified configuration.
 
 ```typescript
 interface MediaControlOptions {
-  capabilities?: Command[];
+  capabilities?: Command[];          // Controls which commands are enabled on both platforms
+  compactCapabilities?: Command[];   // Android: which buttons show in compact notification (max 3)
   notification?: {
     icon?: string;              // Notification icon resource name (bare workflow only - use plugin config for managed workflow)
     largeIcon?: MediaArtwork;   // Large icon for rich notifications
@@ -246,7 +252,20 @@ interface MediaControlOptions {
 }
 
 await MediaControl.enableMediaControls({
-  capabilities: [Command.PLAY, Command.PAUSE, Command.NEXT_TRACK],
+  capabilities: [
+    Command.PLAY,
+    Command.PAUSE,
+    Command.NEXT_TRACK,
+    Command.PREVIOUS_TRACK,
+    Command.SKIP_FORWARD,
+    Command.SKIP_BACKWARD,
+    Command.SEEK,
+  ],
+  compactCapabilities: [
+    Command.PREVIOUS_TRACK,
+    Command.PLAY,         // play/pause are treated as a single toggle button
+    Command.NEXT_TRACK,
+  ],
   notification: {
     // Note: For managed workflow, set icon in app.json plugin config instead
     // icon: 'ic_music_note',   // Bare workflow only: reference existing drawable resource
@@ -600,6 +619,30 @@ The module supports various artwork sources:
 
 ## ⚠️ Important Notes
 
+### Artwork Fallback
+
+If an artwork URI points to a non-existent file, the metadata (title, artist, etc.) will still update correctly on the notification — the artwork will simply be omitted. No error is thrown. This applies to both local file URIs and remote URLs that fail to load.
+
+### Notification Button Appearance (Android 13+)
+
+Starting with Android 13 (API 33), the system renders media notification buttons entirely on its own using Material Design styling. This means:
+- **Button icons, shapes, and backgrounds** are controlled by the system and cannot be customized by apps
+- **The gray/colored circular backgrounds** around buttons are a Material Design choice in Android's SystemUI
+- This affects all media apps equally (Spotify, YouTube Music, etc.)
+
+What you **can** control on Android 13+:
+- **Which buttons appear** via `capabilities` (mapped to PlaybackState actions)
+- **Notification color accent** via `notification.color`
+- **Small notification icon** via plugin config or `notification.icon`
+
+### iOS Control Center Limitations
+
+iOS Control Center and Lock Screen media controls are entirely system-rendered. You can:
+- **Enable/disable commands** via `capabilities`
+- **Configure skip intervals** via `ios.skipInterval`
+
+You cannot customize button icons, colors, layout, or order on iOS.
+
 ### Background Audio (iOS)
 For background audio to work on iOS, ensure your `app.json` includes:
 
@@ -639,6 +682,7 @@ If using HTTP artwork URLs on Android 9+, add network security configuration to 
 - Check network connectivity for remote URLs
 - Verify file paths for local files
 - Check image format compatibility (JPG, PNG supported)
+- If the artwork file doesn't exist, metadata will still update (just without artwork)
 
 **Events not firing:**
 - Ensure event listeners are properly registered
@@ -771,7 +815,8 @@ interface MediaMetadata {
 
 ```typescript
 interface MediaControlOptions {
-  capabilities?: Command[];          // Enabled commands
+  capabilities?: Command[];          // Which commands to enable (omit for all)
+  compactCapabilities?: Command[];   // Android compact notification buttons (max 3, omit for first 3)
   notification?: {                   // Android notification config
     icon?: string;                   // Small icon resource name (bare workflow)
     largeIcon?: MediaArtwork;        // Large icon (artwork)
@@ -786,6 +831,18 @@ interface MediaControlOptions {
   };
 }
 ```
+
+**Capabilities Behavior:**
+- If `capabilities` is omitted, all commands are enabled (backward compatible)
+- On **Android**, only the specified commands appear as notification buttons and PlaybackState actions
+- On **iOS**, only the specified commands are registered with the Control Center
+- `play` and `pause` are treated as a single toggle button in Android notifications
+
+**compactCapabilities Behavior:**
+- Android only (iOS Control Center layout is system-controlled)
+- Maximum 3 items
+- If omitted, defaults to the first 3 notification-capable commands from `capabilities`
+- Notification-capable commands: `play`/`pause`, `nextTrack`, `previousTrack`, `skipForward`, `skipBackward`, `stop`
 
 ## 🎨 Platform-Specific Features
 
