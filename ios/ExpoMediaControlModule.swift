@@ -213,6 +213,7 @@ public class ExpoMediaControlModule: Module {
     UIApplication.shared.endReceivingRemoteControlEvents()
     
     // Clear now playing info
+    nowPlayingInfoCenter.playbackState = .unknown
     nowPlayingInfoCenter.nowPlayingInfo = nil
     
     // Try to deactivate audio session cleanly
@@ -342,12 +343,16 @@ public class ExpoMediaControlModule: Module {
         
         // Update now playing info center
         DispatchQueue.main.async {
+          let playbackState = self?.resolveNowPlayingPlaybackState(self?.currentPlaybackState ?? 0) ?? .unknown
+          self?.nowPlayingInfoCenter.playbackState = playbackState
           self?.nowPlayingInfoCenter.nowPlayingInfo = nowPlayingInfo
         }
       }
     } else {
       // Update without artwork
       DispatchQueue.main.async { [weak self] in
+        let playbackState = self?.resolveNowPlayingPlaybackState(self?.currentPlaybackState ?? 0) ?? .unknown
+        self?.nowPlayingInfoCenter.playbackState = playbackState
         self?.nowPlayingInfoCenter.nowPlayingInfo = nowPlayingInfo
       }
     }
@@ -396,10 +401,31 @@ public class ExpoMediaControlModule: Module {
 
     // Update the system
     DispatchQueue.main.async { [weak self] in
+      self?.nowPlayingInfoCenter.playbackState = self?.resolveNowPlayingPlaybackState(state) ?? .unknown
       self?.nowPlayingInfoCenter.nowPlayingInfo = nowPlayingInfo
     }
 
     print("📱 Playback state updated: \(state), position: \(currentPosition), rate: \(currentPlaybackRate)")
+  }
+
+  /**
+   * Resolve module playback state values to iOS' explicit Now Playing state.
+   * Setting this separately from the info dictionary helps the system render
+   * the correct lock screen and Control Center controls.
+   */
+  private func resolveNowPlayingPlaybackState(_ state: Int) -> MPNowPlayingPlaybackState {
+    switch state {
+    case 1: // PlaybackState.STOPPED
+      return .stopped
+    case 2: // PlaybackState.PLAYING
+      return .playing
+    case 3: // PlaybackState.PAUSED
+      return .paused
+    case 4: // PlaybackState.BUFFERING
+      return .interrupted
+    default:
+      return .unknown
+    }
   }
 
   /**
@@ -418,6 +444,7 @@ public class ExpoMediaControlModule: Module {
     
     // Clear now playing info
     DispatchQueue.main.async { [weak self] in
+      self?.nowPlayingInfoCenter.playbackState = .unknown
       self?.nowPlayingInfoCenter.nowPlayingInfo = nil
     }
     
