@@ -1,0 +1,38 @@
+apply plugin: 'com.android.library'
+
+group = 'expo.modules.mediacontrolcar'
+version = '1.0.0'
+
+def safeExtGet(prop, fallback) {
+  rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback
+}
+
+def expoModulesCorePlugin = new File(project(":expo-modules-core").projectDir.absolutePath, "ExpoModulesCorePlugin.gradle")
+apply from: expoModulesCorePlugin
+applyKotlinExpoModulesCorePlugin()
+useCoreDependencies()
+useExpoPublishing()
+
+project.android {
+  compileSdkVersion safeExtGet("compileSdkVersion", 36)
+  defaultConfig {
+    minSdkVersion safeExtGet("minSdkVersion", 24)
+    targetSdkVersion safeExtGet("targetSdkVersion", 36)
+  }
+}
+
+android {
+  namespace "expo.modules.mediacontrolcar"
+  defaultConfig {
+    versionCode 1
+    versionName "1.0.0"
+  }
+  lintOptions {
+    abortOnError false
+  }
+}
+
+dependencies {
+  // The core package owns the media session; its MediaLibraryProvider API brings Media3 and Guava
+  implementation project(':expo-media-control')
+}

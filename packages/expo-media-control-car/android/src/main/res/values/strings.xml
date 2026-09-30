@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <!-- Shown in the car when no library has been set yet. Override it in your app's strings.xml. -->
+  <string name="expo_media_control_car_empty_library">Open the app on your phone to load your library</string>
+  <string name="expo_media_control_car_root_title">Library</string>
+</resources>
