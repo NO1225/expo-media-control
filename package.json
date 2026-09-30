@@ -1,6 +1,6 @@
 {
   "name": "expo-media-control",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Comprehensive media control module for Expo and React Native with background audio support, lock screen controls, and system integration",
   "main": "build/index.js",
   "types": "build/index.d.ts",
@@ -40,7 +40,7 @@
   "homepage": "https://github.com/NO1225/expo-media-control#readme",
   "devDependencies": {
     "@types/react": "~19.2.10",
-    "eslint": "^8.57.1",
+    "eslint": "^9.39.0",
     "expo": "~57.0.26",
     "expo-module-scripts": "^56.0.3",
     "react-native": "0.86.3"
