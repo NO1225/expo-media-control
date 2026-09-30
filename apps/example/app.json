@@ -28,7 +28,7 @@
     },
     "plugins": [
       [
-        "../app.plugin.js",
+        "expo-media-control",
         {
           "enableBackgroundAudio": true,
           "audioSessionCategory": "playback",

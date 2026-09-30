@@ -5,7 +5,7 @@ const baseConfig = require('expo-module-scripts/eslint.config.base');
 module.exports = defineConfig([
   baseConfig,
   {
-    ignores: ['build/**', 'plugin/build/**', 'example/**'],
+    ignores: ['build/**', 'plugin/build/**'],
   },
   {
     rules: {

@@ -58,29 +58,32 @@ We use GitHub to host code, track issues and feature requests, as well as accept
    cd expo-media-control
    ```
 
-2. **Install dependencies:**
+2. **Install dependencies** (npm workspaces install the packages and the example app together):
    ```bash
    npm install
-   # or
-   yarn install
    ```
 
-3. **Build the module:**
+3. **Build the packages:**
    ```bash
    npm run build
+   npm run build:plugins
    ```
 
-4. **Set up example app:**
-   ```bash
-   cd example
-   npm install
-   ```
+### Repository layout
+
+| Path | What it is |
+| --- | --- |
+| `packages/expo-media-control` | The core package published to npm |
+| `packages/expo-media-control-car` | The optional Android Auto / CarPlay package |
+| `apps/example` | The example app used for development and device testing |
+
+Run a script in one package with `--workspace`, e.g. `npm test --workspace packages/expo-media-control`.
 
 ### Running Example App
 
 ```bash
 # Start Metro bundler
-cd example
+cd apps/example
 npm start
 
 # Run on iOS
@@ -276,14 +279,11 @@ docs: update API documentation for new features
 # Run all tests
 npm test
 
-# Run TypeScript tests
-npm run test:ts
-
 # Run linting
 npm run lint
 
-# Run type checking
-npm run type-check
+# Run type checking (packages and the example app)
+npm run typecheck
 ```
 
 ### Writing Tests

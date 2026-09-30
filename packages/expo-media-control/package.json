@@ -1,0 +1,85 @@
+{
+  "name": "expo-media-control",
+  "version": "2.0.0",
+  "description": "Comprehensive media control module for Expo and React Native with background audio support, lock screen controls, and system integration",
+  "main": "build/index.js",
+  "types": "build/index.d.ts",
+  "files": [
+    "android",
+    "ios",
+    "src",
+    "build",
+    "plugin/build",
+    "plugin/src",
+    "plugin/tsconfig.json",
+    "app.plugin.js",
+    "expo-module.config.json",
+    "tsconfig.json",
+    "eslint.config.js",
+    "*.md",
+    "!**/__tests__",
+    "!**/__mocks__"
+  ],
+  "scripts": {
+    "build": "expo-module build",
+    "build:plugin": "expo-module build plugin",
+    "clean": "expo-module clean",
+    "lint": "expo-module lint",
+    "test": "expo-module test",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p plugin",
+    "prepare": "expo-module prepare",
+    "prepublishOnly": "expo-module prepublishOnly && expo-module build plugin",
+    "expo-module": "expo-module",
+    "open:ios": "xed ../../apps/example/ios",
+    "open:android": "open -a \"Android Studio\" ../../apps/example/android"
+  },
+  "keywords": [
+    "react-native",
+    "expo",
+    "expo-media-control",
+    "media-control",
+    "audio-control",
+    "music-control",
+    "background-audio",
+    "lock-screen",
+    "notification",
+    "control-center",
+    "media-session",
+    "remote-control",
+    "ios",
+    "android"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NO1225/expo-media-control.git",
+    "directory": "packages/expo-media-control"
+  },
+  "bugs": {
+    "url": "https://github.com/NO1225/expo-media-control/issues"
+  },
+  "author": "Juma <safartyjumah@gmail.com> (https://github.com/NO1225)",
+  "license": "MIT",
+  "homepage": "https://github.com/NO1225/expo-media-control/tree/main/packages/expo-media-control#readme",
+  "devDependencies": {
+    "@types/react": "~19.2.10",
+    "eslint": "^9.39.0",
+    "expo": "~57.0.26",
+    "expo-module-scripts": "^56.0.3",
+    "react-native": "0.86.3"
+  },
+  "peerDependencies": {
+    "expo": "*",
+    "react": "*",
+    "react-native": "*"
+  },
+  "expo": {
+    "platforms": [
+      "ios",
+      "android"
+    ],
+    "entryPoint": "./index"
+  },
+  "jest": {
+    "preset": "expo-module-scripts"
+  }
+}

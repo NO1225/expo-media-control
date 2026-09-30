@@ -3,18 +3,18 @@ name: Release
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: 'Release version (e.g., 1.0.0, 1.0.0-beta.1)'
+      package:
+        description: 'Package to release'
         required: true
-        type: string
-      release_type:
-        description: 'Release type'
-        required: true
-        default: 'release'
+        default: 'expo-media-control'
         type: choice
         options:
-          - release
-          - prerelease
+          - expo-media-control
+          - expo-media-control-car
+      version:
+        description: 'Release version (e.g., 2.1.0, 1.0.0-beta.1)'
+        required: true
+        type: string
       prerelease:
         description: 'Is this a prerelease?'
         required: false
@@ -26,7 +26,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      packages: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -43,47 +42,49 @@ jobs:
         run: npm ci
 
       - name: Run tests
-        run: npm run test
+        run: npm run test --workspace "packages/${{ inputs.package }}"
 
-      - name: Build project
-        run: npm run build
+      - name: Build package
+        run: |
+          npm run build --workspace "packages/${{ inputs.package }}"
+          npm run build:plugin --workspace "packages/${{ inputs.package }}"
+
+      # The core keeps its existing vX.Y.Z tags; other packages use <name>@X.Y.Z
+      - name: Resolve tag
+        id: tag
+        run: |
+          if [ "${{ inputs.package }}" = "expo-media-control" ]; then
+            echo "name=v${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${{ inputs.package }}@${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Update version
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          npm version ${{ inputs.version }} --no-git-tag-version
-          git add package.json
-          git commit -m "chore: bump version to ${{ inputs.version }}"
+          npm version ${{ inputs.version }} --no-git-tag-version --workspace "packages/${{ inputs.package }}"
+          git add "packages/${{ inputs.package }}/package.json" package-lock.json
+          git commit -m "chore: bump ${{ inputs.package }} to ${{ inputs.version }}"
           git push
 
       - name: Create GitHub Release
-        id: create_release
-        uses: actions/create-release@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: v${{ inputs.version }}
-          release_name: Release v${{ inputs.version }}
-          draft: false
-          prerelease: ${{ inputs.prerelease }}
-          body: |
-            ## Changes in v${{ inputs.version }}
-            
-            Please see [CHANGELOG.md](https://github.com/NO1225/expo-media-control/blob/main/CHANGELOG.md) for detailed release notes.
-            
-            ## Installation
-            
-            ```bash
-            npm install expo-media-control@${{ inputs.version }}
-            # or
-            yarn add expo-media-control@${{ inputs.version }}
-            ```
-            
-            ## GitHub Packages
-            
-            This release is also available on GitHub Packages:
-            
-            ```bash
-            npm install @NO1225/expo-media-control@${{ inputs.version }} --registry=https://npm.pkg.github.com
-            ```
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cat > release-notes.md <<NOTES
+          ## Changes in ${{ inputs.package }} ${{ inputs.version }}
+
+          Please see [CHANGELOG.md](https://github.com/NO1225/expo-media-control/blob/main/packages/${{ inputs.package }}/CHANGELOG.md) for detailed release notes.
+
+          ## Installation
+
+          \`\`\`bash
+          npx expo install ${{ inputs.package }}@${{ inputs.version }}
+          \`\`\`
+          NOTES
+          gh release create "${{ steps.tag.outputs.name }}" \
+            --title "${{ inputs.package }} ${{ inputs.version }}" \
+            --notes-file release-notes.md \
+            --target "$(git rev-parse HEAD)" \
+            ${{ inputs.prerelease && '--prerelease' || '' }}
