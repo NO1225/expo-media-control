@@ -243,17 +243,18 @@ class MediaControlPlayer : SimpleBasePlayer(Looper.getMainLooper()) {
   }
 
   override fun handleSetPlayWhenReady(playWhenReady: Boolean): ListenableFuture<*> {
+    val pending = pendingPlayRequest
+    if (pending != null) {
+      // Part of a play request: the request carries it instead of a separate "play" command.
+      // The state is left to the app, which reports it once it started the item.
+      pendingPlayRequest = pending.copy(playWhenReady = playWhenReady)
+      return Futures.immediateVoidFuture()
+    }
     // Update optimistically so the UI responds immediately; JavaScript confirms with
     // updatePlaybackState() once its player actually changed state
     setPosition(currentPositionEstimateMs())
     playbackStateValue = if (playWhenReady) STATE_VALUE_PLAYING else STATE_VALUE_PAUSED
-    val pending = pendingPlayRequest
-    if (pending != null) {
-      // Part of a play request: the request carries it instead of a separate "play" command
-      pendingPlayRequest = pending.copy(playWhenReady = playWhenReady)
-    } else {
-      dispatch(if (playWhenReady) "play" else "pause")
-    }
+    dispatch(if (playWhenReady) "play" else "pause")
     return Futures.immediateVoidFuture()
   }
 
