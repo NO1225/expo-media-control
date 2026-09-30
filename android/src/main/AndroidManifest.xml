@@ -1,34 +1,18 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-  <!-- Required permissions for media controls -->
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
-  <uses-permission android:name="android.permission.WAKE_LOCK" />
-  <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-  
-  <!-- Optional permissions for enhanced functionality -->
-  <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-  
+
   <application>
-    <!-- Foreground service for media playback that handles media buttons directly -->
+    <!-- Media3 session service: exposes the media session to the system, Bluetooth, Wear OS and cars -->
     <service
       android:name="expo.modules.mediacontrol.MediaPlaybackService"
       android:exported="true"
       android:foregroundServiceType="mediaPlayback">
       <intent-filter>
-        <action android:name="androidx.media.browse.MediaBrowserService" />
-      </intent-filter>
-      <intent-filter>
-        <action android:name="android.intent.action.MEDIA_BUTTON" />
+        <action android:name="androidx.media3.session.MediaSessionService" />
+        <!-- Lets legacy (MediaBrowserCompat) controllers connect -->
+        <action android:name="android.media.browse.MediaBrowserService" />
       </intent-filter>
     </service>
-    
-    <!-- Media button receiver that forwards to our service -->
-    <receiver 
-      android:name="androidx.media.session.MediaButtonReceiver"
-      android:exported="true">
-      <intent-filter>
-        <action android:name="android.intent.action.MEDIA_BUTTON" />
-      </intent-filter>
-    </receiver>
   </application>
 </manifest>

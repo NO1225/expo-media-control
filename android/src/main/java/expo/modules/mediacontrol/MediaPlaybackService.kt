@@ -1,914 +1,285 @@
 package expo.modules.mediacontrol
 
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.app.PendingIntent
-import android.content.BroadcastReceiver
-import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.os.Binder
+import android.content.pm.PackageManager
 import android.os.Build
-import android.os.Bundle
-import android.os.IBinder
 import android.view.KeyEvent
-import android.support.v4.media.MediaBrowserCompat
-import android.support.v4.media.MediaDescriptionCompat
-import android.support.v4.media.MediaMetadataCompat
-import android.support.v4.media.RatingCompat
-import android.support.v4.media.session.MediaSessionCompat
-import android.support.v4.media.session.PlaybackStateCompat
-import androidx.core.app.NotificationCompat
+import androidx.annotation.OptIn
 import androidx.core.content.IntentCompat
-import androidx.media.MediaBrowserServiceCompat
-import androidx.media.app.NotificationCompat as MediaNotificationCompat
-import androidx.media.session.MediaButtonReceiver
-import kotlinx.coroutines.*
-import java.util.concurrent.ConcurrentHashMap
+import androidx.media3.common.Player
+import androidx.media3.common.Rating
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.session.CommandButton
+import androidx.media3.session.DefaultMediaNotificationProvider
+import androidx.media3.session.MediaSession
+import androidx.media3.session.MediaSessionService
+import androidx.media3.session.SessionResult
+import com.google.common.util.concurrent.Futures
+import com.google.common.util.concurrent.ListenableFuture
 
 /**
- * MediaBrowserService implementation for background media playback
- * This service provides proper background support and MediaBrowser/MediaController functionality
- * Required for Bluetooth controls and proper system integration
+ * Process-wide state shared between the Expo module and the [MediaPlaybackService].
+ * Must only be accessed on the main thread.
  */
-class MediaPlaybackService : MediaBrowserServiceCompat() {
+@OptIn(UnstableApi::class)
+object MediaControlCenter {
+  val player: MediaControlPlayer by lazy { MediaControlPlayer() }
 
-  // Add a flag to track foreground state
-  private var isForegroundService = false
+  /** The session of the running [MediaPlaybackService], if any */
+  var session: MediaSession? = null
 
-  companion object {
-    private const val TAG = "MediaPlaybackService"
-    private const val NOTIFICATION_CHANNEL_ID = "media_playback_channel"
-    private const val NOTIFICATION_ID = 1001
-    private const val MEDIA_ROOT_ID = "expo_media_control_root"
-    private const val EMPTY_MEDIA_ROOT_ID = "empty_root"
-    
-    // Request codes for PendingIntents (distinct codes prevent potential conflicts)
-    private const val REQUEST_CODE_CONTENT_INTENT = 1  // For activity launch from notification tap
-    private const val REQUEST_CODE_MEDIA_ACTION = 2    // For media action broadcasts
-    
-    // Action constants for media buttons
-    const val ACTION_PLAY = "expo.modules.mediacontrol.PLAY"
-    const val ACTION_PAUSE = "expo.modules.mediacontrol.PAUSE"
-    const val ACTION_STOP = "expo.modules.mediacontrol.STOP"
-    const val ACTION_NEXT = "expo.modules.mediacontrol.NEXT"
-    const val ACTION_PREVIOUS = "expo.modules.mediacontrol.PREVIOUS"
-    const val ACTION_SKIP_FORWARD = "expo.modules.mediacontrol.SKIP_FORWARD"
-    const val ACTION_SKIP_BACKWARD = "expo.modules.mediacontrol.SKIP_BACKWARD"
-
-    // Largest artwork edge (px) we decode; bigger images waste memory and can exceed binder limits
-    private const val MAX_ARTWORK_SIZE = 1024
+  fun refreshMediaButtonPreferences() {
+    session?.setMediaButtonPreferences(buildMediaButtonPreferences())
   }
 
-  // Service binder for local binding
-  inner class MediaServiceBinder : Binder() {
-    fun getService(): MediaPlaybackService = this@MediaPlaybackService
-  }
+  /**
+   * Builds the buttons shown next to play/pause (notification, lock screen, Android 13+ system
+   * player, Wear OS, ...).
+   *
+   * The back/forward slots are chosen from `compactCapabilities` (the commands before/after
+   * play-pause). Without it, previous/next are preferred and skip backward/forward are used when
+   * track navigation is disabled. Previous/next in their own slot are left to Media3's default
+   * handling so they stay regular "skip to previous/next" actions for cars and watches.
+   */
+  fun buildMediaButtonPreferences(): List<CommandButton> {
+    val player = player
+    val capabilities = player.capabilities
+    val slotCandidates = setOf("previousTrack", "nextTrack", "skipBackward", "skipForward", "stop")
 
-  private val binder = MediaServiceBinder()
-  private lateinit var mediaSession: MediaSessionCompat
-  private var mediaMetadata: MediaMetadataCompat? = null
-  
-  // Current state tracking
-  private var currentPlaybackState = PlaybackStateCompat.STATE_NONE
-  private var currentPosition = 0L
-  private var currentPlaybackRate = 1.0f // Default 1.0x speed
+    val backCommand: String?
+    val forwardCommand: String?
+    val compact = player.compactCapabilities
+      ?.filter { it == "play" || it == "pause" || (it in slotCandidates && player.isCapabilityEnabled(it)) }
+    if (!compact.isNullOrEmpty()) {
+      val playIndex = compact.indexOfFirst { it == "play" || it == "pause" }
+      if (playIndex >= 0) {
+        backCommand = compact.subList(0, playIndex).lastOrNull()
+        forwardCommand = compact.subList(playIndex + 1, compact.size)
+          .firstOrNull { it != "play" && it != "pause" }
+      } else {
+        backCommand = compact.getOrNull(0)
+        forwardCommand = compact.getOrNull(1)
+      }
+    } else {
+      backCommand = listOf("previousTrack", "skipBackward").firstOrNull { player.isCapabilityEnabled(it) }
+      forwardCommand = listOf("nextTrack", "skipForward").firstOrNull { player.isCapabilityEnabled(it) }
+    }
 
-  // Configuration options
-  private var skipInterval = 15.0 // Default 15 seconds
-  private var artworkLoadJob: Job? = null // Cancel stale artwork loads on track change
-  private var capabilities: List<String>? = null // null = all enabled (backward compat)
-  private var compactCapabilities: List<String>? = null
-  
-  // Notification management
-  private val notificationManager: NotificationManager by lazy {
-    getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-  }
-  
-  // Coroutine scope for async operations
-  private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-  
-  // Media action broadcast receiver
-  private val mediaActionReceiver = object : BroadcastReceiver() {
-    override fun onReceive(context: Context?, intent: Intent?) {
-      when (intent?.action) {
-        ACTION_PLAY -> mediaSessionCallback.onPlay()
-        ACTION_PAUSE -> mediaSessionCallback.onPause()
-        ACTION_STOP -> mediaSessionCallback.onStop()
-        ACTION_NEXT -> mediaSessionCallback.onSkipToNext()
-        ACTION_PREVIOUS -> mediaSessionCallback.onSkipToPrevious()
-        ACTION_SKIP_FORWARD -> mediaSessionCallback.onFastForward()
-        ACTION_SKIP_BACKWARD -> mediaSessionCallback.onRewind()
+    val buttons = mutableListOf<CommandButton>()
+    if (backCommand != null && backCommand != "previousTrack") {
+      createButton(backCommand, CommandButton.SLOT_BACK)?.let { buttons.add(it) }
+    }
+    if (forwardCommand != null && forwardCommand != "nextTrack") {
+      createButton(forwardCommand, CommandButton.SLOT_FORWARD)?.let { buttons.add(it) }
+    }
+
+    // Other explicitly enabled commands go to the overflow (expanded notification / extra slots).
+    // Without explicit capabilities the default previous / play-pause / next layout is kept.
+    if (capabilities != null) {
+      val placed = setOf(backCommand, forwardCommand)
+      for (command in capabilities.distinct()) {
+        if (command in slotCandidates && command !in placed) {
+          createButton(command, CommandButton.SLOT_OVERFLOW)?.let { buttons.add(it) }
+        }
       }
     }
+    return buttons
   }
+
+  private fun createButton(command: String, slot: Int): CommandButton? {
+    val interval = player.skipIntervalSeconds
+    val icon: Int
+    val playerCommand: Int
+    val name: String
+    when (command) {
+      "previousTrack" -> {
+        icon = CommandButton.ICON_PREVIOUS
+        playerCommand = Player.COMMAND_SEEK_TO_PREVIOUS
+        name = "Previous"
+      }
+      "nextTrack" -> {
+        icon = CommandButton.ICON_NEXT
+        playerCommand = Player.COMMAND_SEEK_TO_NEXT
+        name = "Next"
+      }
+      "skipBackward" -> {
+        icon = when (interval) {
+          5.0 -> CommandButton.ICON_SKIP_BACK_5
+          10.0 -> CommandButton.ICON_SKIP_BACK_10
+          15.0 -> CommandButton.ICON_SKIP_BACK_15
+          30.0 -> CommandButton.ICON_SKIP_BACK_30
+          else -> CommandButton.ICON_SKIP_BACK
+        }
+        playerCommand = Player.COMMAND_SEEK_BACK
+        name = "Skip Backward"
+      }
+      "skipForward" -> {
+        icon = when (interval) {
+          5.0 -> CommandButton.ICON_SKIP_FORWARD_5
+          10.0 -> CommandButton.ICON_SKIP_FORWARD_10
+          15.0 -> CommandButton.ICON_SKIP_FORWARD_15
+          30.0 -> CommandButton.ICON_SKIP_FORWARD_30
+          else -> CommandButton.ICON_SKIP_FORWARD
+        }
+        playerCommand = Player.COMMAND_SEEK_FORWARD
+        name = "Skip Forward"
+      }
+      "stop" -> {
+        icon = CommandButton.ICON_STOP
+        playerCommand = Player.COMMAND_STOP
+        name = "Stop"
+      }
+      else -> return null
+    }
+    return CommandButton.Builder(icon)
+      .setPlayerCommand(playerCommand)
+      .setDisplayName(name)
+      .setSlots(slot)
+      .build()
+  }
+}
+
+/**
+ * Media3 session service. Owns the [MediaSession] for [MediaControlCenter.player] and lets
+ * Media3 manage the media notification and the foreground service state.
+ */
+@OptIn(UnstableApi::class)
+class MediaPlaybackService : MediaSessionService() {
+
+  companion object {
+    private const val NOTIFICATION_ID = 1001
+    private const val NOTIFICATION_CHANNEL_ID = "media_playback_channel"
+    private const val SESSION_ID = "expo-media-control"
+  }
+
+  private var mediaSession: MediaSession? = null
 
   override fun onCreate() {
     super.onCreate()
-    try {
-      initializeMediaSession()
-      createNotificationChannel()
-      registerMediaActionReceiver()
-      println("🤖 MediaPlaybackService created successfully")
-    } catch (e: Exception) {
-      println("❌ Error creating MediaPlaybackService: ${e.message}")
-      e.printStackTrace()
-    }
+
+    val sessionBuilder = MediaSession.Builder(this, MediaControlCenter.player)
+      .setId(SESSION_ID)
+      .setCallback(SessionCallback())
+      .setMediaButtonPreferences(MediaControlCenter.buildMediaButtonPreferences())
+    createLaunchIntent()?.let { sessionBuilder.setSessionActivity(it) }
+    val session = sessionBuilder.build()
+    mediaSession = session
+    MediaControlCenter.session = session
+
+    val notificationProvider = DefaultMediaNotificationProvider.Builder(this)
+      .setNotificationId(NOTIFICATION_ID)
+      .setChannelId(NOTIFICATION_CHANNEL_ID)
+      .setChannelName(R.string.expo_media_control_notification_channel_name)
+      .build()
+    findSmallIconResource()?.let { notificationProvider.setSmallIcon(it) }
+    setMediaNotificationProvider(notificationProvider)
   }
+
+  override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
 
   override fun onDestroy() {
+    mediaSession?.let { session ->
+      if (MediaControlCenter.session === session) {
+        MediaControlCenter.session = null
+      }
+      // The player is shared and outlives the service, so only the session is released
+      session.release()
+    }
+    mediaSession = null
     super.onDestroy()
-    serviceScope.cancel()
-    try {
-      unregisterReceiver(mediaActionReceiver)
-    } catch (e: IllegalArgumentException) {
-      // Receiver was never registered (onCreate failed early)
-    }
-    if (::mediaSession.isInitialized) {
-      mediaSession.release()
-    }
-    
-    // Reset foreground state flag
-    isForegroundService = false
-    println("🤖 MediaPlaybackService destroyed")
   }
 
-  override fun onBind(intent: Intent?): IBinder? {
-    return when (intent?.action) {
-      SERVICE_INTERFACE -> super.onBind(intent)
-      else -> binder
+  private inner class SessionCallback : MediaSession.Callback {
+    override fun onSetRating(
+      session: MediaSession,
+      controller: MediaSession.ControllerInfo,
+      rating: Rating
+    ): ListenableFuture<SessionResult> {
+      MediaControlCenter.player.onRatingRequested(rating)
+      return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
     }
-  }
 
-  override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-    try {
-      println("🤖 MediaPlaybackService onStartCommand called with action: ${intent?.action}")
-      
-      // Ensure MediaSession is initialized before handling any intents
-      if (!::mediaSession.isInitialized) {
-        println("🤖 MediaSession not initialized, initializing now...")
-        initializeMediaSession()
+    override fun onSetRating(
+      session: MediaSession,
+      controller: MediaSession.ControllerInfo,
+      mediaId: String,
+      rating: Rating
+    ): ListenableFuture<SessionResult> = onSetRating(session, controller, rating)
+
+    override fun onMediaButtonEvent(
+      session: MediaSession,
+      controllerInfo: MediaSession.ControllerInfo,
+      intent: Intent
+    ): Boolean {
+      // Many Bluetooth headsets and car kits only have next/previous keys. When track navigation
+      // is disabled but skip forward/backward is enabled, use those keys to skip instead.
+      val keyEvent = IntentCompat.getParcelableExtra(intent, Intent.EXTRA_KEY_EVENT, KeyEvent::class.java)
+        ?: return false
+      val player = MediaControlCenter.player
+      val remapToSkip = when (keyEvent.keyCode) {
+        KeyEvent.KEYCODE_MEDIA_NEXT ->
+          !player.isCapabilityEnabled("nextTrack") && player.isCapabilityEnabled("skipForward")
+        KeyEvent.KEYCODE_MEDIA_PREVIOUS ->
+          !player.isCapabilityEnabled("previousTrack") && player.isCapabilityEnabled("skipBackward")
+        else -> false
       }
-      
-      // Handle media button events
-      if (intent?.action == Intent.ACTION_MEDIA_BUTTON) {
-        println("🤖 Processing MEDIA_BUTTON intent")
-        MediaButtonReceiver.handleIntent(mediaSession, intent)
-      } else if (intent != null) {
-        // Handle other intents (might be from MediaButtonReceiver)
-        MediaButtonReceiver.handleIntent(mediaSession, intent)
+      if (!remapToSkip) {
+        return false
       }
-      
-      // For Android O and above, we need to start foreground service
-      // But only if we're not already in foreground and if allowed
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !isForegroundService) {
-        try {
-          val notification = createNotification()
-          startForeground(NOTIFICATION_ID, notification)
-          isForegroundService = true
-          println("🤖 Service started in foreground with notification")
-        } catch (e: Exception) {
-          println("⚠️ Cannot start foreground service in onStartCommand: ${e.message}")
-          // Continue without foreground service - the service can still function for media controls
-          // The MediaSession will still work for system integration
-        }
+      if (keyEvent.action == KeyEvent.ACTION_DOWN && keyEvent.repeatCount == 0) {
+        if (keyEvent.keyCode == KeyEvent.KEYCODE_MEDIA_NEXT) player.seekForward() else player.seekBack()
       }
-      
-    } catch (e: Exception) {
-      println("❌ Error in onStartCommand: ${e.message}")
-      e.printStackTrace()
-    }
-    
-    return START_STICKY
-  }
-
-  // =============================================
-  // MediaBrowserService Implementation
-  // =============================================
-
-  override fun onGetRoot(
-    clientPackageName: String,
-    clientUid: Int,
-    rootHints: Bundle?
-  ): BrowserRoot? {
-    // Allow any client to browse (you might want to add authentication here)
-    return BrowserRoot(MEDIA_ROOT_ID, null)
-  }
-
-  override fun onLoadChildren(
-    parentId: String,
-    result: Result<MutableList<MediaBrowserCompat.MediaItem>>
-  ) {
-    // For now, return empty list as we're primarily using this for transport controls
-    // In a full implementation, you might return a list of media items
-    val mediaItems = mutableListOf<MediaBrowserCompat.MediaItem>()
-    result.sendResult(mediaItems)
-  }
-
-  // =============================================
-  // MediaSession Management
-  // =============================================
-
-  private fun initializeMediaSession() {
-    // Create MediaSession
-    mediaSession = MediaSessionCompat(this, TAG).apply {
-      // Set callback for handling transport controls
-      setCallback(mediaSessionCallback)
-      
-      // Configure session flags for proper Bluetooth and system integration
-      setFlags(
-        MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or
-        MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS
-      )
-      
-      // Initialize playback state
-      setPlaybackState(buildPlaybackState())
-      
-      // Set session token for MediaBrowserService
-      setSessionToken(sessionToken)
-      
-      // Activate session
-      isActive = true
+      return true
     }
   }
 
-  private val mediaSessionCallback = object : MediaSessionCompat.Callback() {
-    override fun onPlay() {
-      try {
-        currentPlaybackState = PlaybackStateCompat.STATE_PLAYING
-        updatePlaybackState()
-        sendEventToModule("play", null)
-        
-        // Only start foreground service if not already in foreground
-        if (!isForegroundService) {
-          try {
-            startForeground(NOTIFICATION_ID, createNotification())
-            isForegroundService = true
-            println("🤖 Service started in foreground")
-          } catch (e: Exception) {
-            println("⚠️ Failed to start foreground service in onPlay: ${e.message}")
-            // Continue without foreground service - update notification normally
-            updateNotification()
-          }
-        } else {
-          // Just update the existing notification
-          updateNotification()
-          println("🤖 Service already in foreground, updated notification")
-        }
-      } catch (e: Exception) {
-        println("❌ Error in onPlay: ${e.message}")
-      }
-    }
-
-    override fun onPause() {
-      try {
-        currentPlaybackState = PlaybackStateCompat.STATE_PAUSED
-        updatePlaybackState()
-        sendEventToModule("pause", null)
-        updateNotification()
-      } catch (e: Exception) {
-        println("❌ Error in onPause: ${e.message}")
-      }
-    }
-
-    override fun onStop() {
-      try {
-        currentPlaybackState = PlaybackStateCompat.STATE_STOPPED
-        currentPosition = 0L
-        updatePlaybackState()
-        sendEventToModule("stop", null)
-        
-        // Stop foreground service and reset flag
-        stopForeground(false)
-        isForegroundService = false
-        println("🤖 Service stopped from foreground")
-        
-        stopSelf()
-      } catch (e: Exception) {
-        println("❌ Error in onStop: ${e.message}")
-      }
-    }
-
-    override fun onSkipToNext() {
-      try {
-        sendEventToModule("nextTrack", null)
-      } catch (e: Exception) {
-        println("❌ Error in onSkipToNext: ${e.message}")
-      }
-    }
-
-    override fun onSkipToPrevious() {
-      try {
-        sendEventToModule("previousTrack", null)
-      } catch (e: Exception) {
-        println("❌ Error in onSkipToPrevious: ${e.message}")
-      }
-    }
-
-    override fun onSeekTo(pos: Long) {
-      try {
-        currentPosition = pos
-        updatePlaybackState()
-        val data = mapOf("position" to (pos / 1000.0))
-        sendEventToModule("seek", data)
-      } catch (e: Exception) {
-        println("❌ Error in onSeekTo: ${e.message}")
-      }
-    }
-
-    override fun onFastForward() {
-      try {
-        val data = mapOf("interval" to skipInterval)
-        sendEventToModule("skipForward", data)
-      } catch (e: Exception) {
-        println("❌ Error in onFastForward: ${e.message}")
-      }
-    }
-
-    override fun onRewind() {
-      try {
-        val data = mapOf("interval" to skipInterval)
-        sendEventToModule("skipBackward", data)
-      } catch (e: Exception) {
-        println("❌ Error in onRewind: ${e.message}")
-      }
-    }
-
-    override fun onCustomAction(action: String?, extras: Bundle?) {
-      // Android 13+ renders skip forward/backward buttons from custom actions
-      when (action) {
-        ACTION_SKIP_FORWARD -> onFastForward()
-        ACTION_SKIP_BACKWARD -> onRewind()
-      }
-    }
-
-    override fun onMediaButtonEvent(mediaButtonEvent: Intent?): Boolean {
-      // Many Bluetooth headsets and car kits only send NEXT/PREVIOUS keys. When track
-      // navigation is disabled but skip forward/backward is enabled, map those keys to
-      // skip events so the hardware buttons still do something useful.
-      val keyEvent = mediaButtonEvent?.let {
-        IntentCompat.getParcelableExtra(it, Intent.EXTRA_KEY_EVENT, KeyEvent::class.java)
-      }
-      if (keyEvent != null && keyEvent.action == KeyEvent.ACTION_DOWN) {
-        when (keyEvent.keyCode) {
-          KeyEvent.KEYCODE_MEDIA_NEXT -> if (!isCapabilityEnabled("nextTrack") && isCapabilityEnabled("skipForward")) {
-            onFastForward()
-            return true
-          }
-          KeyEvent.KEYCODE_MEDIA_PREVIOUS -> if (!isCapabilityEnabled("previousTrack") && isCapabilityEnabled("skipBackward")) {
-            onRewind()
-            return true
-          }
-        }
-      }
-      return super.onMediaButtonEvent(mediaButtonEvent)
-    }
-
-    override fun onSetRating(rating: RatingCompat) {
-      try {
-        val data = mapOf(
-          "rating" to rating.getRating(),
-          "type" to when (rating.ratingStyle) {
-            RatingCompat.RATING_HEART -> "heart"
-            RatingCompat.RATING_THUMB_UP_DOWN -> "thumbsUpDown"
-            RatingCompat.RATING_3_STARS -> "threeStars"
-            RatingCompat.RATING_4_STARS -> "fourStars"
-            RatingCompat.RATING_5_STARS -> "fiveStars"
-            RatingCompat.RATING_PERCENTAGE -> "percentage"
-            else -> "unknown"
-          }
-        )
-        sendEventToModule("setRating", data)
-      } catch (e: Exception) {
-        println("❌ Error in onSetRating: ${e.message}")
-      }
-    }
-  }
-
-  // =============================================
-  // Public Interface for Module Integration
-  // =============================================
-
-  fun updateConfiguration(config: Map<String, Any>) {
-    config["skipInterval"]?.let {
-      skipInterval = (it as? Number)?.toDouble() ?: 15.0
-      println("🤖 MediaPlaybackService: Skip interval updated to $skipInterval seconds")
-    }
-  }
-
-  fun updateCapabilities(
-    caps: List<String>?,
-    compactCaps: List<String>?
-  ) {
-    capabilities = caps
-    compactCapabilities = compactCaps
-    updatePlaybackState()
-    updateNotification()
-  }
-
-  fun updateMetadata(metadata: Map<String, Any>) {
-    val builder = MediaMetadataCompat.Builder()
-    
-    metadata["title"]?.let { builder.putString(MediaMetadataCompat.METADATA_KEY_TITLE, it.toString()) }
-    metadata["artist"]?.let { builder.putString(MediaMetadataCompat.METADATA_KEY_ARTIST, it.toString()) }
-    metadata["album"]?.let { builder.putString(MediaMetadataCompat.METADATA_KEY_ALBUM, it.toString()) }
-    metadata["genre"]?.let { builder.putString(MediaMetadataCompat.METADATA_KEY_GENRE, it.toString()) }
-    metadata["date"]?.let { builder.putString(MediaMetadataCompat.METADATA_KEY_DATE, it.toString()) }
-    
-    metadata["duration"]?.let {
-      val duration = (it as? Number)?.toLong() ?: 0L
-      builder.putLong(MediaMetadataCompat.METADATA_KEY_DURATION, duration * 1000)
-    }
-    
-    metadata["trackNumber"]?.let {
-      val trackNumber = (it as? Number)?.toLong() ?: 0L
-      builder.putLong(MediaMetadataCompat.METADATA_KEY_TRACK_NUMBER, trackNumber)
-    }
-    
-    metadata["albumTrackCount"]?.let {
-      val trackCount = (it as? Number)?.toLong() ?: 0L
-      builder.putLong(MediaMetadataCompat.METADATA_KEY_NUM_TRACKS, trackCount)
-    }
-
-    // Cancel any in-flight artwork load so a slow image for a previous track can
-    // never overwrite this (newer) metadata
-    artworkLoadJob?.cancel()
-    artworkLoadJob = null
-
-    // Publish text metadata immediately so track changes show up without waiting for artwork
-    mediaMetadata = builder.build()
-    mediaSession.setMetadata(mediaMetadata)
-    updateNotification()
-
-    // Then load artwork asynchronously and republish once it is available
-    val artworkUri = (metadata["artwork"] as? Map<*, *>)?.get("uri")?.toString()
-    if (!artworkUri.isNullOrEmpty()) {
-      artworkLoadJob = serviceScope.launch {
-        val bitmap = loadArtwork(artworkUri)
-        if (bitmap == null) {
-          println("⚠️ Artwork not available at URI: $artworkUri, keeping metadata without artwork")
-          return@launch
-        }
-        ensureActive()
-        builder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, bitmap)
-        mediaMetadata = builder.build()
-        mediaSession.setMetadata(mediaMetadata)
-        updateNotification()
-      }
-    }
-  }
-
-  fun updatePlaybackState(state: Int, position: Double?, playbackRate: Double?) {
-    currentPlaybackState = when (state) {
-      0 -> PlaybackStateCompat.STATE_NONE
-      1 -> PlaybackStateCompat.STATE_STOPPED
-      2 -> PlaybackStateCompat.STATE_PLAYING
-      3 -> PlaybackStateCompat.STATE_PAUSED
-      4 -> PlaybackStateCompat.STATE_BUFFERING
-      5 -> PlaybackStateCompat.STATE_ERROR
-      else -> PlaybackStateCompat.STATE_NONE
-    }
-
-    position?.let {
-      currentPosition = (it * 1000).toLong()
-    }
-
-    // Update playback rate if provided, otherwise use default based on state
-    if (playbackRate != null) {
-      currentPlaybackRate = playbackRate.toFloat()
-    } else {
-      // Fallback to default behavior when rate is not provided
-      currentPlaybackRate = if (currentPlaybackState == PlaybackStateCompat.STATE_PLAYING) 1.0f else 0.0f
-    }
-
-    updatePlaybackState()
-    updateNotification()
-  }
-
-  private fun updatePlaybackState() {
-    mediaSession.setPlaybackState(buildPlaybackState())
-  }
-
-  /**
-   * Build a fresh PlaybackState (a new builder each time so custom actions never accumulate).
-   * Uses the stored playback rate so Android can extrapolate progress between updates.
-   */
-  private fun buildPlaybackState(): PlaybackStateCompat {
-    val builder = PlaybackStateCompat.Builder()
-      .setActions(getAvailableActions())
-      .setState(currentPlaybackState, currentPosition, currentPlaybackRate)
-
-    // Android 13+ builds the media controls from the session, not from notification actions,
-    // and has no slot for ACTION_REWIND/ACTION_FAST_FORWARD. Skip buttons must be exposed as
-    // custom actions; the system puts them in the previous/next slots when those are unused.
-    // Backward is added first so it lands on the left (previous) slot. Only added when requested
-    // explicitly so the default layout (previous / play-pause / next) stays unchanged.
-    val caps = capabilities.orEmpty()
-    if ("skipBackward" in caps) {
-      builder.addCustomAction(
-        PlaybackStateCompat.CustomAction.Builder(
-          ACTION_SKIP_BACKWARD,
-          "Skip Backward",
-          R.drawable.expo_media_control_skip_backward
-        ).build()
-      )
-    }
-    if ("skipForward" in caps) {
-      builder.addCustomAction(
-        PlaybackStateCompat.CustomAction.Builder(
-          ACTION_SKIP_FORWARD,
-          "Skip Forward",
-          R.drawable.expo_media_control_skip_forward
-        ).build()
-      )
-    }
-    return builder.build()
-  }
-
-  /**
-   * Returns true when the capability is enabled (null capabilities = all enabled, for backward compat)
-   */
-  private fun isCapabilityEnabled(command: String): Boolean {
-    val caps = capabilities ?: return true
-    return caps.contains(command)
-  }
-
-  private fun getAvailableActions(): Long {
-    val caps = capabilities ?: return (
-        PlaybackStateCompat.ACTION_PLAY or
-        PlaybackStateCompat.ACTION_PAUSE or
-        PlaybackStateCompat.ACTION_PLAY_PAUSE or
-        PlaybackStateCompat.ACTION_STOP or
-        PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
-        PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS or
-        PlaybackStateCompat.ACTION_SEEK_TO or
-        PlaybackStateCompat.ACTION_FAST_FORWARD or
-        PlaybackStateCompat.ACTION_REWIND or
-        PlaybackStateCompat.ACTION_SET_RATING
-    )
-
-    var actions = 0L
-    for (cap in caps) {
-      actions = actions or when (cap) {
-        "play" -> PlaybackStateCompat.ACTION_PLAY or PlaybackStateCompat.ACTION_PLAY_PAUSE
-        "pause" -> PlaybackStateCompat.ACTION_PAUSE or PlaybackStateCompat.ACTION_PLAY_PAUSE
-        "stop" -> PlaybackStateCompat.ACTION_STOP
-        "nextTrack" -> PlaybackStateCompat.ACTION_SKIP_TO_NEXT
-        "previousTrack" -> PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS
-        "seek" -> PlaybackStateCompat.ACTION_SEEK_TO
-        "skipForward" -> PlaybackStateCompat.ACTION_FAST_FORWARD
-        "skipBackward" -> PlaybackStateCompat.ACTION_REWIND
-        "setRating" -> PlaybackStateCompat.ACTION_SET_RATING
-        else -> 0L
-      }
-    }
-    return actions
-  }
-
-  // =============================================
-  // Notification Management
-  // =============================================
-
-  private fun createNotificationChannel() {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-      val channel = NotificationChannel(
-        NOTIFICATION_CHANNEL_ID,
-        "Media Playback",
-        NotificationManager.IMPORTANCE_LOW
-      ).apply {
-        description = "Controls for media playback"
-        setShowBadge(false)
-        lockscreenVisibility = Notification.VISIBILITY_PUBLIC
-      }
-      notificationManager.createNotificationChannel(channel)
-    }
-  }
-
-  private fun createNotification(): Notification {
-    // Create intent to launch main activity when notification is tapped
+  private fun createLaunchIntent(): PendingIntent? {
     val launchIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
       flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
-    }
-    val contentPendingIntent = if (launchIntent != null) {
-      val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-      } else {
-        PendingIntent.FLAG_UPDATE_CURRENT
-      }
-      PendingIntent.getActivity(this, REQUEST_CODE_CONTENT_INTENT, launchIntent, flags)
-    } else null
-
-    val builder = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
-      .setSmallIcon(getSmallIconResource())
-      .setContentTitle(mediaMetadata?.getString(MediaMetadataCompat.METADATA_KEY_TITLE) ?: "Unknown")
-      .setContentText(mediaMetadata?.getString(MediaMetadataCompat.METADATA_KEY_ARTIST) ?: "Unknown Artist")
-      .setLargeIcon(mediaMetadata?.getBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART))
-      .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-      .setPriority(NotificationCompat.PRIORITY_LOW)
-      .setOngoing(currentPlaybackState == PlaybackStateCompat.STATE_PLAYING)
-      .setShowWhen(false)
-      .setContentIntent(contentPendingIntent)
-
-    // Add actions and compute compact view indices
-    val addedCommands = addNotificationActions(builder)
-    val compactIndices = computeCompactViewIndices(addedCommands)
-
-    // Add media style
-    val mediaStyle = MediaNotificationCompat.MediaStyle()
-        .setMediaSession(mediaSession.sessionToken)
-        .setCancelButtonIntent(createPendingIntent(ACTION_STOP))
-        .setShowCancelButton(true)
-    if (compactIndices.isNotEmpty()) {
-      mediaStyle.setShowActionsInCompactView(*compactIndices)
-    }
-    builder.setStyle(mediaStyle)
-
-    return builder.build()
-  }
-
-  private fun updateNotification() {
-    try {
-      if (currentPlaybackState != PlaybackStateCompat.STATE_NONE) {
-        serviceScope.launch {
-          try {
-            val notification = withContext(Dispatchers.IO) {
-              createNotification()
-            }
-            withContext(Dispatchers.Main) {
-              if (isForegroundService) {
-                // Update foreground notification
-                notificationManager.notify(NOTIFICATION_ID, notification)
-              } else {
-                // Try to show as regular notification if not in foreground
-                try {
-                  notificationManager.notify(NOTIFICATION_ID, notification)
-                } catch (e: SecurityException) {
-                  println("⚠️ Cannot show notification: ${e.message}")
-                  // Service can still function without notifications
-                }
-              }
-            }
-          } catch (e: Exception) {
-            println("❌ Error updating notification: ${e.message}")
-          }
-        }
-      }
-    } catch (e: Exception) {
-      println("❌ Error in updateNotification: ${e.message}")
-    }
-  }
-
-  private fun addNotificationActions(builder: NotificationCompat.Builder): List<String> {
-    val addedCommands = mutableListOf<String>()
-
-    // Build ordered list of notification-capable commands from capabilities
-    val commandsToShow: List<String> = if (capabilities != null) {
-      val seen = mutableSetOf<String>()
-      val result = mutableListOf<String>()
-      for (cap in capabilities!!) {
-        val normalized = if (cap == "play" || cap == "pause") "playPause" else cap
-        if (normalized !in seen && normalized in setOf(
-            "playPause", "previousTrack", "nextTrack",
-            "skipForward", "skipBackward", "stop"
-          )) {
-          seen.add(normalized)
-          result.add(normalized)
-        }
-      }
-      result
-    } else {
-      listOf("previousTrack", "playPause", "nextTrack")
-    }
-
-    for (cmd in commandsToShow) {
-      when (cmd) {
-        "previousTrack" -> {
-          builder.addAction(
-            android.R.drawable.ic_media_previous,
-            "Previous",
-            createPendingIntent(ACTION_PREVIOUS)
-          )
-          addedCommands.add("previousTrack")
-        }
-        "playPause" -> {
-          if (currentPlaybackState == PlaybackStateCompat.STATE_PLAYING) {
-            builder.addAction(
-              android.R.drawable.ic_media_pause,
-              "Pause",
-              createPendingIntent(ACTION_PAUSE)
-            )
-          } else {
-            builder.addAction(
-              android.R.drawable.ic_media_play,
-              "Play",
-              createPendingIntent(ACTION_PLAY)
-            )
-          }
-          addedCommands.add("playPause")
-        }
-        "nextTrack" -> {
-          builder.addAction(
-            android.R.drawable.ic_media_next,
-            "Next",
-            createPendingIntent(ACTION_NEXT)
-          )
-          addedCommands.add("nextTrack")
-        }
-        "skipForward" -> {
-          builder.addAction(
-            android.R.drawable.ic_media_ff,
-            "Skip Forward",
-            createPendingIntent(ACTION_SKIP_FORWARD)
-          )
-          addedCommands.add("skipForward")
-        }
-        "skipBackward" -> {
-          builder.addAction(
-            android.R.drawable.ic_media_rew,
-            "Skip Backward",
-            createPendingIntent(ACTION_SKIP_BACKWARD)
-          )
-          addedCommands.add("skipBackward")
-        }
-        "stop" -> {
-          builder.addAction(
-            R.drawable.expo_media_control_stop,
-            "Stop",
-            createPendingIntent(ACTION_STOP)
-          )
-          addedCommands.add("stop")
-        }
-      }
-    }
-
-    return addedCommands
-  }
-
-  private fun computeCompactViewIndices(addedCommands: List<String>): IntArray {
-    val compactCaps = compactCapabilities
-    if (compactCaps != null) {
-      val indices = mutableListOf<Int>()
-      for (cap in compactCaps) {
-        val normalized = if (cap == "play" || cap == "pause") "playPause" else cap
-        val index = addedCommands.indexOf(normalized)
-        if (index >= 0 && index !in indices && indices.size < 3) {
-          indices.add(index)
-        }
-      }
-      return indices.toIntArray()
-    }
-    // Default: first 3 (or fewer)
-    return (0 until minOf(3, addedCommands.size)).toList().toIntArray()
-  }
-
-  private fun createPendingIntent(action: String): PendingIntent {
-    val intent = Intent(action).apply {
-      setPackage(packageName)
-    }
+    } ?: return null
     val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
       PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
     } else {
       PendingIntent.FLAG_UPDATE_CURRENT
     }
-    return PendingIntent.getBroadcast(this, REQUEST_CODE_MEDIA_ACTION, intent, flags)
+    return PendingIntent.getActivity(this, 0, launchIntent, flags)
   }
 
-  private fun getSmallIconResource(): Int {
-    // First try to get custom notification icon from metadata
+  /**
+   * Small notification icon: the icon configured through the config plugin, then common icon
+   * names, then the launcher icon. Returns null to keep Media3's default icon.
+   */
+  private fun findSmallIconResource(): Int? {
     return try {
-      val appInfo = packageManager.getApplicationInfo(packageName, android.content.pm.PackageManager.GET_META_DATA)
-      val metaData = appInfo.metaData
-      
-      if (metaData != null) {
-        // Check for custom notification icon name from plugin configuration
-        val iconName = metaData.getString("expo.modules.mediacontrol.NOTIFICATION_ICON")
-        if (iconName != null) {
-          // Remove file extension and path if present
-          val cleanIconName = iconName.substringAfterLast("/").substringBeforeLast(".")
-          val resourceId = resources.getIdentifier(cleanIconName, "drawable", packageName)
-          if (resourceId != 0) {
-            println("🎵 Using custom notification icon: $cleanIconName (ID: $resourceId)")
-            return resourceId
-          } else {
-            println("⚠️ Custom notification icon '$cleanIconName' not found in drawable resources")
-          }
+      val appInfo = packageManager.getApplicationInfo(packageName, PackageManager.GET_META_DATA)
+      val iconName = appInfo.metaData?.getString("expo.modules.mediacontrol.NOTIFICATION_ICON")
+      if (iconName != null) {
+        val cleanIconName = iconName.substringAfterLast("/").substringBeforeLast(".")
+        val resourceId = resources.getIdentifier(cleanIconName, "drawable", packageName)
+        if (resourceId != 0) {
+          return resourceId
         }
+        println("⚠️ Custom notification icon '$cleanIconName' not found in drawable resources")
       }
-      
-      // Try standard notification icon names
+
       val standardIconNames = listOf(
         "ic_notification",
         "notification_icon",
         "ic_stat_notification",
         "ic_media_notification"
       )
-      
-      for (iconName in standardIconNames) {
-        val resourceId = resources.getIdentifier(iconName, "drawable", packageName)
+      for (name in standardIconNames) {
+        val resourceId = resources.getIdentifier(name, "drawable", packageName)
         if (resourceId != 0) {
-          println("🎵 Using standard notification icon: $iconName")
           return resourceId
         }
       }
-      
-      // Try mipmap resources for launcher icon
-      val mipmapIcon = resources.getIdentifier("ic_launcher", "mipmap", packageName)
-      if (mipmapIcon != 0) {
-        println("🎵 Using mipmap launcher icon for notification")
-        return mipmapIcon
-      }
-      
-      // Final fallback to system media icon
-      println("⚠️ No custom icon found, using system default media icon")
-      android.R.drawable.ic_media_play
-      
+
+      resources.getIdentifier("ic_launcher", "mipmap", packageName).takeIf { it != 0 }
     } catch (e: Exception) {
       println("❌ Error getting notification icon: ${e.message}")
-      android.R.drawable.ic_media_play
-    }
-  }
-
-  // =============================================
-  // Module Integration
-  // =============================================
-
-  private fun registerMediaActionReceiver() {
-    val filter = IntentFilter().apply {
-      addAction(ACTION_PLAY)
-      addAction(ACTION_PAUSE)
-      addAction(ACTION_STOP)
-      addAction(ACTION_NEXT)
-      addAction(ACTION_PREVIOUS)
-      addAction(ACTION_SKIP_FORWARD)
-      addAction(ACTION_SKIP_BACKWARD)
-    }
-    
-    // Register receiver with proper flags for Android 14+
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-      registerReceiver(mediaActionReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-    } else {
-      registerReceiver(mediaActionReceiver, filter)
-    }
-  }
-
-  private fun sendEventToModule(command: String, data: Map<String, Any>?) {
-    // This will be called by the ExpoMediaControlModule to handle events
-    // The module should register a listener to receive these events
-    try {
-      ExpoMediaControlModule.handleMediaEvent(command, data)
-    } catch (e: Exception) {
-      println("❌ Error sending event to module: ${e.message}")
-      // Don't crash if module isn't ready yet
-    }
-  }
-
-  // =============================================
-  // Utility Methods
-  // =============================================
-
-  private suspend fun loadArtwork(uri: String): Bitmap? {
-    return try {
-      withContext(Dispatchers.IO) {
-        val bytes = if (uri.startsWith("http://") || uri.startsWith("https://")) {
-          val connection = java.net.URL(uri).openConnection() as java.net.HttpURLConnection
-          try {
-            connection.connectTimeout = 5000 // 5 second timeout
-            connection.readTimeout = 5000    // 5 second read timeout
-            connection.inputStream.use { it.readBytes() }
-          } finally {
-            connection.disconnect()
-          }
-        } else {
-          contentResolver.openInputStream(android.net.Uri.parse(uri))?.use { it.readBytes() }
-        } ?: return@withContext null
-        decodeSampledBitmap(bytes)
-      }
-    } catch (e: CancellationException) {
-      throw e
-    } catch (e: Exception) {
-      println("❌ Failed to load artwork: ${e.message}")
       null
     }
   }
-
-  /**
-   * Decode artwork downsampled to at most MAX_ARTWORK_SIZE on its longest edge
-   */
-  private fun decodeSampledBitmap(bytes: ByteArray): Bitmap? {
-    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
-
-    var sampleSize = 1
-    while (maxOf(bounds.outWidth, bounds.outHeight) / (sampleSize * 2) >= MAX_ARTWORK_SIZE) {
-      sampleSize *= 2
-    }
-    val options = BitmapFactory.Options().apply { inSampleSize = sampleSize }
-    return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
-  }
-
-  fun getMediaSession(): MediaSessionCompat = mediaSession
 }
