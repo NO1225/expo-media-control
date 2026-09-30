@@ -1,10 +1,7 @@
 // Re-export types and enums from ExpoMediaControlModule
 import ExpoMediaControlModule from "./ExpoMediaControlModule";
 
-export {
-  PlaybackState,
-  Command,
-  RatingType,
+export type {
   MediaArtwork,
   MediaRating,
   MediaMetadata,
@@ -13,6 +10,12 @@ export {
   VolumeChange,
   MediaControlEventListener,
   VolumeChangeListener,
+} from "./ExpoMediaControlModule";
+
+export {
+  PlaybackState,
+  Command,
+  RatingType,
   // Error types
   MediaControlError,
   ValidationError,

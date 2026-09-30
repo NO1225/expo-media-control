@@ -121,9 +121,8 @@ const withAndroidMediaControl: ConfigPlugin<MediaControlOptions> = (config, opti
       'android.permission.ACCESS_NETWORK_STATE',
     ];
 
-    permissions.forEach(permission => {
-      AndroidConfig.Permissions.addPermission(androidManifest, permission);
-    });
+    // ensurePermissions skips permissions that are already declared (e.g. by expo-audio)
+    AndroidConfig.Permissions.ensurePermissions(androidManifest, permissions);
 
     // Get the main application
     const mainApplication = AndroidConfig.Manifest.getMainApplicationOrThrow(androidManifest);
