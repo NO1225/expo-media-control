@@ -33,6 +33,7 @@ Major release: the Android implementation moves to AndroidX Media3, and APIs tha
 - **Android: `resetControls()` left the notification visible**
 - Bluetooth next/previous keys skip forward/backward when track navigation is disabled ([#22](https://github.com/NO1225/expo-media-control/issues/22))
 - Config plugin no longer adds duplicate Android permissions
+- **Android: next/previous lost after a remote play when the player has its own session** ([#29](https://github.com/NO1225/expo-media-control/issues/29)) - expo-audio creates a media session per player, which took over the media buttons once playback was started from the notification or a headset
 
 ### ⬆️ Updated
 - Expo SDK 57 / React Native 0.86 / TypeScript 6 / ESLint 9 for development and the example app
