@@ -33,6 +33,19 @@ jobs:
       - name: Build project
         run: npm run build
 
+      # What npm would publish: a tarball without the compiled plugin or module breaks every app that installs it
+      - name: Check the package contents
+        run: |
+          npm run prepublishOnly
+          npm pack --dry-run --json > pack.json
+          node -e "
+            const files = require('./pack.json')[0].files.map((f) => f.path);
+            const needed = ['build/index.js', 'build/index.d.ts', 'plugin/build/index.js', 'app.plugin.js', 'expo-module.config.json', 'android/build.gradle', 'ios/ExpoMediaControl.podspec'];
+            const missing = needed.filter((f) => !files.includes(f));
+            if (missing.length) { console.error('Missing from the tarball: ' + missing.join(', ')); process.exit(1); }
+            console.log(files.length + ' files, all required ones present');
+          "
+
   publish-npm:
     needs: test
     runs-on: ubuntu-latest
