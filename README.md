@@ -844,6 +844,15 @@ interface MediaControlOptions {
 - If omitted, defaults to the first 3 notification-capable commands from `capabilities`
 - Notification-capable commands: `play`/`pause`, `nextTrack`, `previousTrack`, `skipForward`, `skipBackward`, `stop`
 
+**Android 13+ media controls:**
+- Since Android 13 the system builds the media player (notification shade, lock screen, Bluetooth/car UIs) from the MediaSession rather than from notification buttons, so `compactCapabilities` only affects Android 12 and below.
+- The system layout is fixed: previous slot, play/pause, next slot. `previousTrack`/`nextTrack` take those slots when enabled; otherwise `skipBackward`/`skipForward` are shown there (they are exposed as session custom actions).
+- `stop` is not shown by the system player on Android 13+.
+- Bluetooth next/previous keys are mapped to `skipForward`/`skipBackward` when `nextTrack`/`previousTrack` are not enabled.
+
+**Changing capabilities at runtime:**
+Call `enableMediaControls()` again with the new options (for example, switching between skip buttons for a single episode and next/previous for a queue). The new capabilities are applied on both platforms without re-registering event listeners.
+
 ## 🎨 Platform-Specific Features
 
 ### iOS Features
@@ -933,15 +942,15 @@ Configure the plugin in your `app.json`:
 
 ## 📱 Platform Requirements
 
+### Expo
+- Expo SDK 54 or newer (developed and tested against SDK 57)
+- Development build or bare workflow (not Expo Go)
+
 ### iOS
-- iOS 11.0 or higher
-- Xcode 12 or higher
-- Swift 5.0 or higher
+- iOS 15.1 or higher
 
 ### Android
-- Android API level 21 (Android 5.0) or higher
-- Kotlin support
-- AndroidX libraries
+- Android API level 24 (Android 7.0) or higher
 
 ## 🤝 Contributing
 

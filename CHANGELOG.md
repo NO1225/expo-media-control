@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 🐛 Fixed
+- **Android 13+: skip forward/backward buttons missing** ([#20](https://github.com/NO1225/expo-media-control/issues/20), [#23](https://github.com/NO1225/expo-media-control/issues/23)) - `skipForward`/`skipBackward` are now exposed as MediaSession custom actions, which is what the Android 13+ system media player renders
+- **Reconfiguring capabilities had no effect** ([#23](https://github.com/NO1225/expo-media-control/issues/23)) - calling `enableMediaControls()` again now applies the new capabilities/skip interval on Android (service was already bound, so the new options were dropped) and iOS (the call returned early)
+- **Duplicate events after re-enabling** - JS no longer registers another native listener on every `enableMediaControls()` call
+- **Duplicate rating events on iOS** - like/dislike targets were re-added on every metadata update
+- **Stale track info** - a slow artwork download for a previous track could overwrite the current track's metadata (Android and iOS); text metadata is now published immediately and artwork is merged in when loaded
+- **iOS metadata race** - `updatePlaybackState()` right after `updateMetadata()` could restore the previous track's info
+- **iOS playback state** - `MPNowPlayingInfoCenter.playbackState` is now kept in sync ([#21](https://github.com/NO1225/expo-media-control/pull/21), thanks @kockar96)
+- Volume change listener subscribed to the wrong native event name
+- Android: large artwork is downsampled before use, HTTP connections are closed, stop button uses a stop icon, duplicate `OnDestroy` removed
+- Config plugin no longer adds duplicate Android permissions
+
+### ⬆️ Updated
+- Expo SDK 57 / React Native 0.86 / TypeScript 6 for development and the example app
+- CI uses Node 22
+- Added unit tests for the JS layer
+- Removed verbose debug logging from the JS layer
+
 ### 🔧 Changed
 - **Configuration Cleanup** - Removed redundant configuration options for clearer API
   - Removed `skipInterval` from plugin config (build-time) - now only configurable at runtime via `enableMediaControls()`
