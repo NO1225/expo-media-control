@@ -80,6 +80,9 @@ class MediaControlPlayer : SimpleBasePlayer(Looper.getMainLooper()) {
   private var pendingPlayRequest: MediaPlayRequest? = null
   private val handler = Handler(Looper.getMainLooper())
 
+  // True between a play command from a controller and JavaScript confirming it
+  private var playAwaitingConfirmation = false
+
   // =============================================
   // STATE UPDATES FROM JAVASCRIPT
   // =============================================
@@ -144,6 +147,15 @@ class MediaControlPlayer : SimpleBasePlayer(Looper.getMainLooper()) {
     if (rate != null && rate > 0) {
       playbackSpeed = rate.toFloat()
     }
+    // Android sends media keys to the session that became active last. The app's real player can
+    // own a session too (expo-audio creates one per player), and after a remote play it starts
+    // later than our optimistic update. Stepping through paused makes the confirmed play the
+    // latest activation, so next/previous keep reaching this session.
+    if (state == STATE_VALUE_PLAYING && playbackStateValue == STATE_VALUE_PLAYING && playAwaitingConfirmation) {
+      playbackStateValue = STATE_VALUE_PAUSED
+      invalidateState()
+    }
+    playAwaitingConfirmation = false
     playbackStateValue = state
     playerError = if (state == STATE_VALUE_ERROR) {
       playerError ?: PlaybackException("Playback error", null, PlaybackException.ERROR_CODE_UNSPECIFIED)
@@ -160,6 +172,7 @@ class MediaControlPlayer : SimpleBasePlayer(Looper.getMainLooper()) {
     durationMs = C.TIME_UNSET
     isLiveStream = false
     playbackStateValue = STATE_VALUE_NONE
+    playAwaitingConfirmation = false
     playerError = null
     playbackSpeed = 1f
     setPosition(0)
@@ -254,6 +267,7 @@ class MediaControlPlayer : SimpleBasePlayer(Looper.getMainLooper()) {
     // updatePlaybackState() once its player actually changed state
     setPosition(currentPositionEstimateMs())
     playbackStateValue = if (playWhenReady) STATE_VALUE_PLAYING else STATE_VALUE_PAUSED
+    playAwaitingConfirmation = playWhenReady
     dispatch(if (playWhenReady) "play" else "pause")
     return Futures.immediateVoidFuture()
   }

@@ -49,12 +49,12 @@ jobs:
           npm run build --workspace "packages/${{ inputs.package }}"
           npm run build:plugin --workspace "packages/${{ inputs.package }}"
 
-      # The core keeps its existing vX.Y.Z tags; other packages use <name>@X.Y.Z
+      # The core keeps its existing X.Y.Z tags; other packages use <name>@X.Y.Z
       - name: Resolve tag
         id: tag
         run: |
           if [ "${{ inputs.package }}" = "expo-media-control" ]; then
-            echo "name=v${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+            echo "name=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
           else
             echo "name=${{ inputs.package }}@${{ inputs.version }}" >> "$GITHUB_OUTPUT"
           fi

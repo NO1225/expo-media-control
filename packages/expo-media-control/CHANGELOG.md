@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Android: media library hook.** `MediaPlaybackService` is now a Media3 `MediaLibraryService`. Another package (such as `expo-media-control-car`) can register a `MediaLibraryProvider` to show a browsable library in Android Auto and other media browsers, answer searches, and receive "play this item" requests. Apps without a provider behave as in 2.0.
 - The Android library now exposes Media3 and Guava as `api` dependencies so other modules can implement the provider.
 
-## [2.0.0] - Unreleased
+## [2.0.0] - 2026-09-30
 
 Major release: the Android implementation moves to AndroidX Media3, and APIs that were declared but never implemented are removed.
 
@@ -39,6 +39,7 @@ Major release: the Android implementation moves to AndroidX Media3, and APIs tha
 - **Android: `resetControls()` left the notification visible**
 - Bluetooth next/previous keys skip forward/backward when track navigation is disabled ([#22](https://github.com/NO1225/expo-media-control/issues/22))
 - Config plugin no longer adds duplicate Android permissions
+- **Android: next/previous lost after a remote play when the player has its own session** ([#29](https://github.com/NO1225/expo-media-control/issues/29)) - expo-audio creates a media session per player, which took over the media buttons once playback was started from the notification or a headset
 
 ### ⬆️ Updated
 - Expo SDK 57 / React Native 0.86 / TypeScript 6 / ESLint 9 for development and the example app

@@ -640,6 +640,8 @@ If using HTTP artwork URLs on Android 9+, add network security configuration to 
 
 Don't call expo-audio's `player.setActiveForLockScreen()` together with this module. Both create a system media session and notification, and the OS routes lock screen, Bluetooth and car buttons to only one of them - the usual symptom is that some buttons "do nothing". Use this module for the system controls and expo-audio only for playback.
 
+On Android, expo-audio also creates a plain media session of its own for every player, even without `setActiveForLockScreen()`. Android sends media keys to the session that became active last, so this module re-activates its session when you confirm `PlaybackState.PLAYING` after a remote play. Always report `PLAYING` once your player has really started, and next/previous keep arriving as events.
+
 On Android, expo-audio's docs mention background playback stopping after ~3 minutes without `setActiveForLockScreen()`. That limit comes from the app not running a foreground service; this module's media service runs in the foreground while you report `PlaybackState.PLAYING`, which serves the same purpose. Start playback (and report `PLAYING`) while the app is in the foreground - Android doesn't allow apps to start a foreground service from the background.
 
 ### Reset Controls

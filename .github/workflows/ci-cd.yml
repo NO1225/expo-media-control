@@ -38,6 +38,23 @@ jobs:
       - name: Run tests
         run: npm run test -- --passWithNoTests
 
+      # What npm would publish: a tarball without the compiled plugin or module breaks every app that installs it
+      - name: Check the package contents
+        run: |
+          for package in expo-media-control expo-media-control-car; do
+            npm run prepublishOnly --workspace "packages/$package"
+            npm pack --dry-run --json --workspace "packages/$package" > "pack-$package.json"
+            PACKAGE="$package" node -e "
+              const name = process.env.PACKAGE;
+              const pod = name === 'expo-media-control' ? 'ExpoMediaControl' : 'ExpoMediaControlCar';
+              const files = require('./pack-' + name + '.json')[0].files.map((f) => f.path);
+              const needed = ['build/index.js', 'build/index.d.ts', 'plugin/build/index.js', 'app.plugin.js', 'expo-module.config.json', 'android/build.gradle', 'ios/' + pod + '.podspec'];
+              const missing = needed.filter((f) => !files.includes(f));
+              if (missing.length) { console.error(name + ': missing from the tarball: ' + missing.join(', ')); process.exit(1); }
+              console.log(name + ': ' + files.length + ' files, all required ones present');
+            "
+          done
+
   publish-npm:
     needs: test
     runs-on: ubuntu-latest
@@ -57,7 +74,7 @@ jobs:
 
       # Release tags pick the package to publish:
       #   expo-media-control-car@1.0.0 -> packages/expo-media-control-car
-      #   expo-media-control@2.1.0 or v2.1.0 -> packages/expo-media-control
+      #   expo-media-control@2.1.0, v2.1.0 or 2.1.0 -> packages/expo-media-control
       - name: Resolve package and version from release tag
         id: target
         env:
@@ -66,7 +83,8 @@ jobs:
           case "$TAG" in
             expo-media-control-car@*) PACKAGE=expo-media-control-car; VERSION="${TAG#expo-media-control-car@}" ;;
             expo-media-control@*) PACKAGE=expo-media-control; VERSION="${TAG#expo-media-control@}" ;;
-            v*) PACKAGE=expo-media-control; VERSION="${TAG#v}" ;;
+            v[0-9]*) PACKAGE=expo-media-control; VERSION="${TAG#v}" ;;
+            [0-9]*) PACKAGE=expo-media-control; VERSION="$TAG" ;;
             *) echo "Unrecognized release tag: $TAG"; exit 1 ;;
           esac
           echo "package=$PACKAGE" >> "$GITHUB_OUTPUT"
@@ -74,7 +92,7 @@ jobs:
           echo "Publishing $PACKAGE@$VERSION"
 
       - name: Set package version
-        run: npm version "${{ steps.target.outputs.version }}" --no-git-tag-version --workspace "packages/${{ steps.target.outputs.package }}"
+        run: npm version "${{ steps.target.outputs.version }}" --no-git-tag-version --allow-same-version --workspace "packages/${{ steps.target.outputs.package }}"
 
       - name: Check package contents
         run: |
