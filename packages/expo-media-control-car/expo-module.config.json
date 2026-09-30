@@ -1,9 +1,19 @@
 {
-  "platforms": ["apple", "android"],
+  "platforms": [
+    "apple",
+    "android"
+  ],
   "apple": {
-    "modules": ["ExpoMediaControlCarModule"]
+    "modules": [
+      "ExpoMediaControlCarModule"
+    ],
+    "appDelegateSubscribers": [
+      "ExpoMediaControlCarAppDelegateSubscriber"
+    ]
   },
   "android": {
-    "modules": ["expo.modules.mediacontrolcar.ExpoMediaControlCarModule"]
+    "modules": [
+      "expo.modules.mediacontrolcar.ExpoMediaControlCarModule"
+    ]
   }
 }

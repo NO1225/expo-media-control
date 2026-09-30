@@ -42,10 +42,6 @@ class ExpoMediaControlCarModule : Module() {
 
     Events(EVENT_LOAD_CHILDREN, EVENT_SEARCH, EVENT_PLAY_REQUEST)
 
-    OnCreate {
-      runOnMain { runCatching { attach() } }
-    }
-
     OnDestroy {
       runOnMain { detach() }
     }

@@ -3,7 +3,8 @@
   "compilerOptions": {
     "strict": true,
     "paths": {
-      "expo-media-control": ["../../packages/expo-media-control/src/index"]
+      "expo-media-control": ["../../packages/expo-media-control/src/index"],
+      "expo-media-control-car": ["../../packages/expo-media-control-car/src/index"]
     }
   }
 }

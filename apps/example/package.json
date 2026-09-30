@@ -7,12 +7,16 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "start:no-car": "EXPO_PUBLIC_MEDIA_CONTROL_CAR=0 expo start",
+    "android:no-car": "EXPO_PUBLIC_MEDIA_CONTROL_CAR=0 expo run:android",
+    "ios:no-car": "EXPO_PUBLIC_MEDIA_CONTROL_CAR=0 expo run:ios"
   },
   "dependencies": {
     "expo": "~57.0.26",
     "expo-audio": "~57.0.5",
     "expo-media-control": "*",
+    "expo-media-control-car": "*",
     "react": "19.2.3",
     "react-native": "0.86.3"
   },

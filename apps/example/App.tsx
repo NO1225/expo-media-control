@@ -18,6 +18,7 @@ import {
 //   AudioInterruption,
 // } from 'expo-media-control';
 import { PlayerManager } from './PlayerManager';
+import { CAR_ENABLED, setupCarLibrary } from './CarSetup';
 import CustomButton from './CustomButton';
 
 const playerManager = PlayerManager.getInstance();
@@ -97,6 +98,18 @@ export default function App() {
   // =============================================
   // EVENT HANDLERS SETUP
   // =============================================
+
+  // Android Auto / CarPlay library (expo-media-control-car)
+  useEffect(() => {
+    if (!CAR_ENABLED) {
+      return;
+    }
+    return setupCarLibrary(sampleTracks, (trackId) => {
+      const index = sampleTracks.findIndex((track) => track.id === trackId);
+      switchTrack(index);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Initialize PlayerManager
   useEffect(() => {
