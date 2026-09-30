@@ -1,7 +1,7 @@
 apply plugin: 'com.android.library'
 
 group = 'expo.modules.mediacontrol'
-version = '2.0.0'
+version = '2.1.0'
 
 // Simple helper that allows the root project to override versions declared by this library.
 def safeExtGet(prop, fallback) {
@@ -34,7 +34,7 @@ android {
   namespace "expo.modules.mediacontrol"
   defaultConfig {
     versionCode 1
-    versionName "2.0.0"
+    versionName "2.1.0"
   }
   lintOptions {
     abortOnError false
@@ -45,9 +45,11 @@ dependencies {
   // Media3 session (MediaSession, notification and foreground service handling).
   // Defaults to the version used by expo-audio so both modules share one Media3 version;
   // override with `expoMediaControlMedia3Version` in the root project's ext block.
+  // `api` because MediaLibraryProvider exposes Media3 and Guava types to other modules
+  // (such as expo-media-control-car).
   def media3Version = safeExtGet("expoMediaControlMedia3Version", "1.9.0")
-  implementation "androidx.media3:media3-session:${media3Version}"
-  implementation "androidx.media3:media3-common:${media3Version}"
+  api "androidx.media3:media3-session:${media3Version}"
+  api "androidx.media3:media3-common:${media3Version}"
   implementation "androidx.core:core:1.13.1"
-  implementation "com.google.guava:guava:33.3.1-android"
+  api "com.google.guava:guava:33.3.1-android"
 }

@@ -1,22 +1,29 @@
 package expo.modules.mediacontrol
 
 import android.app.PendingIntent
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.util.Log
 import android.view.KeyEvent
 import androidx.annotation.OptIn
 import androidx.core.content.IntentCompat
+import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.Rating
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.CommandButton
 import androidx.media3.session.DefaultMediaNotificationProvider
+import androidx.media3.session.LibraryResult
+import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
-import androidx.media3.session.MediaSessionService
+import androidx.media3.session.SessionError
 import androidx.media3.session.SessionResult
+import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import com.google.common.util.concurrent.MoreExecutors
 
 /**
  * Process-wide state shared between the Expo module and the [MediaPlaybackService].
@@ -24,10 +31,52 @@ import com.google.common.util.concurrent.ListenableFuture
  */
 @OptIn(UnstableApi::class)
 object MediaControlCenter {
+  /** Application meta-data naming a [MediaLibraryProvider] class to create when the service starts */
+  const val LIBRARY_PROVIDER_META_DATA = "expo.modules.mediacontrol.LIBRARY_PROVIDER"
+
+  private const val TAG = "ExpoMediaControl"
+
   val player: MediaControlPlayer by lazy { MediaControlPlayer() }
 
   /** The session of the running [MediaPlaybackService], if any */
-  var session: MediaSession? = null
+  var session: MediaLibraryService.MediaLibrarySession? = null
+
+  /**
+   * The media library shown to Android Auto and other media browsers, or null for none.
+   * While set, the player also accepts "play this item" requests and passes them to it.
+   */
+  var libraryProvider: MediaLibraryProvider? = null
+    set(value) {
+      field = value
+      player.playRequestListener = value?.let { provider -> { request -> provider.onPlayRequest(request) } }
+    }
+
+  private var manifestProviderChecked = false
+
+  /**
+   * Returns the library provider, creating the one declared in the app manifest (see
+   * [LIBRARY_PROVIDER_META_DATA]) on first use.
+   */
+  fun getLibraryProvider(context: Context): MediaLibraryProvider? {
+    if (libraryProvider == null && !manifestProviderChecked) {
+      manifestProviderChecked = true
+      createManifestLibraryProvider(context)?.let { libraryProvider = it }
+    }
+    return libraryProvider
+  }
+
+  private fun createManifestLibraryProvider(context: Context): MediaLibraryProvider? {
+    return try {
+      val appInfo = context.packageManager.getApplicationInfo(context.packageName, PackageManager.GET_META_DATA)
+      val className = appInfo.metaData?.getString(LIBRARY_PROVIDER_META_DATA) ?: return null
+      Class.forName(className)
+        .getConstructor(Context::class.java)
+        .newInstance(context.applicationContext) as? MediaLibraryProvider
+    } catch (e: Exception) {
+      Log.w(TAG, "Couldn't create the media library provider declared in the manifest", e)
+      null
+    }
+  }
 
   fun refreshMediaButtonPreferences() {
     session?.setMediaButtonPreferences(buildMediaButtonPreferences())
@@ -141,11 +190,12 @@ object MediaControlCenter {
 }
 
 /**
- * Media3 session service. Owns the [MediaSession] for [MediaControlCenter.player] and lets
- * Media3 manage the media notification and the foreground service state.
+ * Media3 library service. Owns the session for [MediaControlCenter.player] and lets Media3 manage
+ * the media notification and the foreground service state. Browse requests (Android Auto, Wear OS,
+ * ...) go to the [MediaLibraryProvider], if one is registered.
  */
 @OptIn(UnstableApi::class)
-class MediaPlaybackService : MediaSessionService() {
+class MediaPlaybackService : MediaLibraryService() {
 
   companion object {
     private const val NOTIFICATION_ID = 1001
@@ -153,14 +203,14 @@ class MediaPlaybackService : MediaSessionService() {
     private const val SESSION_ID = "expo-media-control"
   }
 
-  private var mediaSession: MediaSession? = null
+  private var mediaSession: MediaLibrarySession? = null
 
   override fun onCreate() {
     super.onCreate()
+    MediaControlCenter.getLibraryProvider(this)
 
-    val sessionBuilder = MediaSession.Builder(this, MediaControlCenter.player)
+    val sessionBuilder = MediaLibrarySession.Builder(this, MediaControlCenter.player, SessionCallback())
       .setId(SESSION_ID)
-      .setCallback(SessionCallback())
       .setMediaButtonPreferences(MediaControlCenter.buildMediaButtonPreferences())
     createLaunchIntent()?.let { sessionBuilder.setSessionActivity(it) }
     val session = sessionBuilder.build()
@@ -176,7 +226,7 @@ class MediaPlaybackService : MediaSessionService() {
     setMediaNotificationProvider(notificationProvider)
   }
 
-  override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
+  override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? = mediaSession
 
   override fun onDestroy() {
     mediaSession?.let { session ->
@@ -190,7 +240,86 @@ class MediaPlaybackService : MediaSessionService() {
     super.onDestroy()
   }
 
-  private inner class SessionCallback : MediaSession.Callback {
+  private inner class SessionCallback : MediaLibrarySession.Callback {
+    private val provider: MediaLibraryProvider?
+      get() = MediaControlCenter.libraryProvider
+
+    override fun onGetLibraryRoot(
+      session: MediaLibrarySession,
+      browser: MediaSession.ControllerInfo,
+      params: LibraryParams?
+    ): ListenableFuture<LibraryResult<MediaItem>> =
+      provider?.onGetLibraryRoot(session, browser, params) ?: notSupported()
+
+    override fun onGetItem(
+      session: MediaLibrarySession,
+      browser: MediaSession.ControllerInfo,
+      mediaId: String
+    ): ListenableFuture<LibraryResult<MediaItem>> =
+      provider?.onGetItem(session, browser, mediaId) ?: notSupported()
+
+    override fun onGetChildren(
+      session: MediaLibrarySession,
+      browser: MediaSession.ControllerInfo,
+      parentId: String,
+      page: Int,
+      pageSize: Int,
+      params: LibraryParams?
+    ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> =
+      provider?.onGetChildren(session, browser, parentId, page, pageSize, params) ?: notSupported()
+
+    override fun onSearch(
+      session: MediaLibrarySession,
+      browser: MediaSession.ControllerInfo,
+      query: String,
+      params: LibraryParams?
+    ): ListenableFuture<LibraryResult<Void>> =
+      provider?.onSearch(session, browser, query, params) ?: notSupported()
+
+    override fun onGetSearchResult(
+      session: MediaLibrarySession,
+      browser: MediaSession.ControllerInfo,
+      query: String,
+      page: Int,
+      pageSize: Int,
+      params: LibraryParams?
+    ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> =
+      provider?.onGetSearchResult(session, browser, query, page, pageSize, params) ?: notSupported()
+
+    override fun onAddMediaItems(
+      mediaSession: MediaSession,
+      controller: MediaSession.ControllerInfo,
+      mediaItems: MutableList<MediaItem>
+    ): ListenableFuture<MutableList<MediaItem>> {
+      val provider = provider
+        ?: return Futures.immediateFailedFuture(UnsupportedOperationException("No media library"))
+      return Futures.transform(
+        provider.onResolveMediaItems(mediaSession, controller, mediaItems),
+        { it.toMutableList() },
+        MoreExecutors.directExecutor()
+      )
+    }
+
+    override fun onSetMediaItems(
+      mediaSession: MediaSession,
+      controller: MediaSession.ControllerInfo,
+      mediaItems: MutableList<MediaItem>,
+      startIndex: Int,
+      startPositionMs: Long
+    ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+      // The player takes a single item, so keep the one playback should start with
+      val index = if (startIndex in mediaItems.indices) startIndex else 0
+      val requested = mediaItems.getOrNull(index)?.let { mutableListOf(it) } ?: mediaItems
+      return Futures.transform(
+        onAddMediaItems(mediaSession, controller, requested),
+        { resolved -> MediaSession.MediaItemsWithStartPosition(resolved.take(1), 0, startPositionMs) },
+        MoreExecutors.directExecutor()
+      )
+    }
+
+    private fun <T> notSupported(): ListenableFuture<LibraryResult<T>> =
+      Futures.immediateFuture(LibraryResult.ofError(SessionError.ERROR_NOT_SUPPORTED))
+
     override fun onSetRating(
       session: MediaSession,
       controller: MediaSession.ControllerInfo,

@@ -1,6 +1,7 @@
 package expo.modules.mediacontrol
 
 import android.net.Uri
+import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import androidx.annotation.OptIn
@@ -35,6 +36,17 @@ class MediaControlPlayer : SimpleBasePlayer(Looper.getMainLooper()) {
 
   var commandListener: MediaControlCommandListener? = null
 
+  /**
+   * Receives "play this item" requests from controllers. While set, the player accepts one media
+   * item from controllers (Android Auto, Assistant voice requests, ...); the app is expected to
+   * start that item with its own player and report it through the usual metadata and state updates.
+   */
+  var playRequestListener: ((MediaPlayRequest) -> Unit)? = null
+    set(value) {
+      field = value
+      invalidateState()
+    }
+
   /** Enabled commands (null = all enabled, for backward compatibility) */
   var capabilities: List<String>? = null
     private set
@@ -62,6 +74,11 @@ class MediaControlPlayer : SimpleBasePlayer(Looper.getMainLooper()) {
 
   // Created once per error so listeners aren't notified of a "new" error on every state refresh
   private var playerError: PlaybackException? = null
+
+  // A play request received in the current main-loop task. It is delivered once the task ends so
+  // a play() in the same task (legacy "play from media id" does both) becomes part of it.
+  private var pendingPlayRequest: MediaPlayRequest? = null
+  private val handler = Handler(Looper.getMainLooper())
 
   // =============================================
   // STATE UPDATES FROM JAVASCRIPT
@@ -137,6 +154,7 @@ class MediaControlPlayer : SimpleBasePlayer(Looper.getMainLooper()) {
   }
 
   fun reset() {
+    pendingPlayRequest = null
     metadata = null
     mediaId = DEFAULT_MEDIA_ID
     durationMs = C.TIME_UNSET
@@ -229,7 +247,45 @@ class MediaControlPlayer : SimpleBasePlayer(Looper.getMainLooper()) {
     // updatePlaybackState() once its player actually changed state
     setPosition(currentPositionEstimateMs())
     playbackStateValue = if (playWhenReady) STATE_VALUE_PLAYING else STATE_VALUE_PAUSED
-    dispatch(if (playWhenReady) "play" else "pause")
+    val pending = pendingPlayRequest
+    if (pending != null) {
+      // Part of a play request: the request carries it instead of a separate "play" command
+      pendingPlayRequest = pending.copy(playWhenReady = playWhenReady)
+    } else {
+      dispatch(if (playWhenReady) "play" else "pause")
+    }
+    return Futures.immediateVoidFuture()
+  }
+
+  override fun handleSetMediaItems(
+    mediaItems: List<MediaItem>,
+    startIndex: Int,
+    startPositionMs: Long
+  ): ListenableFuture<*> {
+    val index = if (startIndex in mediaItems.indices) startIndex else 0
+    val item = mediaItems.getOrNull(index) ?: return Futures.immediateVoidFuture()
+    val positionMs = if (startPositionMs == C.TIME_UNSET) 0 else startPositionMs.coerceAtLeast(0)
+
+    // Show the requested item right away; the app replaces it with updateMetadata()
+    metadata = item.mediaMetadata
+    mediaId = item.mediaId.ifEmpty { DEFAULT_MEDIA_ID }
+    durationMs = item.mediaMetadata.durationMs ?: C.TIME_UNSET
+    isLiveStream = false
+    setPosition(positionMs)
+    if (playbackStateValue == STATE_VALUE_NONE || playbackStateValue == STATE_VALUE_ERROR) {
+      playbackStateValue = STATE_VALUE_STOPPED
+      playerError = null
+    }
+
+    val isFirstInTask = pendingPlayRequest == null
+    pendingPlayRequest = MediaPlayRequest(item, positionMs, playWhenReady = false)
+    if (isFirstInTask) {
+      handler.post {
+        val request = pendingPlayRequest ?: return@post
+        pendingPlayRequest = null
+        playRequestListener?.invoke(request)
+      }
+    }
     return Futures.immediateVoidFuture()
   }
 
@@ -314,6 +370,10 @@ class MediaControlPlayer : SimpleBasePlayer(Looper.getMainLooper()) {
     }
     if (isCapabilityEnabled("seek") && !isLiveStream) {
       builder.add(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
+    }
+    if (playRequestListener != null) {
+      // One item at a time: the app owns the queue and builds it from the requested item
+      builder.add(Player.COMMAND_SET_MEDIA_ITEM)
     }
     return builder.build()
   }
