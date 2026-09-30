@@ -16,7 +16,6 @@ import {
 //   RatingType,
 //   MediaControlEvent,
 //   AudioInterruption,
-//   VolumeChange,
 // } from 'expo-media-control';
 import { PlayerManager } from './PlayerManager';
 import CustomButton from './CustomButton';

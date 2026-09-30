@@ -1,18 +1,19 @@
 // Re-export types and enums from ExpoMediaControlModule
 import ExpoMediaControlModule from "./ExpoMediaControlModule";
 
-export {
-  PlaybackState,
-  Command,
-  RatingType,
+export type {
   MediaArtwork,
   MediaRating,
   MediaMetadata,
   MediaControlOptions,
   MediaControlEvent,
-  VolumeChange,
   MediaControlEventListener,
-  VolumeChangeListener,
+} from "./ExpoMediaControlModule";
+
+export {
+  PlaybackState,
+  Command,
+  RatingType,
   // Error types
   MediaControlError,
   ValidationError,
@@ -38,7 +39,6 @@ export interface ExpoMediaControlInterface {
 
   // Event handling methods
   addListener: typeof ExpoMediaControlModule.addListener;
-  addVolumeChangeListener: typeof ExpoMediaControlModule.addVolumeChangeListener;
   removeAllListeners: typeof ExpoMediaControlModule.removeAllListeners;
 
   // Utility methods
@@ -62,7 +62,6 @@ export const MediaControl: ExpoMediaControlInterface = {
   updatePlaybackState: ExpoMediaControlModule.updatePlaybackState,
   resetControls: ExpoMediaControlModule.resetControls,
   addListener: ExpoMediaControlModule.addListener,
-  addVolumeChangeListener: ExpoMediaControlModule.addVolumeChangeListener,
   removeAllListeners: ExpoMediaControlModule.removeAllListeners,
   isEnabled: ExpoMediaControlModule.isEnabled,
   getCurrentMetadata: ExpoMediaControlModule.getCurrentMetadata,
@@ -77,7 +76,6 @@ export const {
   updatePlaybackState,
   resetControls,
   addListener,
-  addVolumeChangeListener,
   removeAllListeners,
   isEnabled,
   getCurrentMetadata,

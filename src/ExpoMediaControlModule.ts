@@ -245,15 +245,6 @@ function validateMediaControlOptions(
     }
   }
 
-  if (options.notification !== undefined) {
-    if (typeof options.notification !== "object") {
-      throw new ValidationError(
-        "notification must be an object",
-        "notification",
-      );
-    }
-  }
-
   if (options.ios !== undefined) {
     if (typeof options.ios !== "object") {
       throw new ValidationError("ios must be an object", "ios");
@@ -296,8 +287,6 @@ export enum Command {
   SKIP_BACKWARD = "skipBackward",
   SEEK = "seek",
   SET_RATING = "setRating",
-  VOLUME_UP = "volumeUp",
-  VOLUME_DOWN = "volumeDown",
 }
 
 /**
@@ -338,15 +327,17 @@ export interface MediaMetadata {
   artist?: string;
   album?: string;
   artwork?: MediaArtwork;
+  /** Duration in seconds */
   duration?: number;
+  /** Current position in seconds (same as passing a position to updatePlaybackState) */
   elapsedTime?: number;
   genre?: string;
   trackNumber?: number;
   albumTrackCount?: number;
+  /** Release date; on Android only the year (first 4 characters) is used */
   date?: string;
   rating?: MediaRating;
-  color?: string;
-  colorized?: boolean;
+  /** Marks the item as a live stream (no progress bar / seeking) */
   isLiveStream?: boolean;
 }
 
@@ -357,14 +348,13 @@ export interface MediaMetadata {
  * not by this control module.
  */
 export interface MediaControlOptions {
+  /** Commands to enable. Omit to enable all commands. */
   capabilities?: Command[];
+  /**
+   * Android: which commands take the slots next to play/pause, written in display order,
+   * e.g. `[SKIP_BACKWARD, PLAY, SKIP_FORWARD]`. Max 3 items.
+   */
   compactCapabilities?: Command[];
-  notification?: {
-    icon?: string;
-    largeIcon?: MediaArtwork;
-    color?: string;
-    showWhenClosed?: boolean;
-  };
   ios?: {
     skipInterval?: number;
   };
@@ -382,17 +372,8 @@ export interface MediaControlEvent {
   timestamp: number;
 }
 
-/**
- * Volume change information
- */
-export interface VolumeChange {
-  volume: number;
-  userInitiated: boolean;
-}
-
 // Event listener types
 export type MediaControlEventListener = (event: MediaControlEvent) => void;
-export type VolumeChangeListener = (change: VolumeChange) => void;
 
 // =============================================
 // NATIVE MODULE INTERFACE
@@ -467,17 +448,25 @@ declare class ExpoMediaControlNativeModule extends NativeModule {
 const nativeModule =
   requireNativeModule<ExpoMediaControlNativeModule>("ExpoMediaControl");
 
-console.log("📱 JS: Native module loaded:", nativeModule);
+/**
+ * Subscriptions to native events. Kept so that calling enableMediaControls()
+ * again (e.g. to change capabilities) does not register duplicate listeners,
+ * which would dispatch every remote command more than once.
+ */
+let nativeSubscriptions: { remove: () => void }[] = [];
+
+function removeNativeSubscriptions(): void {
+  nativeSubscriptions.forEach((subscription) => subscription.remove());
+  nativeSubscriptions = [];
+}
 
 /**
  * Map to store event listeners for manual management
  */
 const eventListeners: {
   mediaControl: MediaControlEventListener[];
-  volumeChange: VolumeChangeListener[];
 } = {
   mediaControl: [],
-  volumeChange: [],
 };
 
 /**
@@ -505,15 +494,14 @@ class ExtendedExpoMediaControlModule {
 
       await nativeModule.enableMediaControls(options);
 
-      // Add native event listeners
-      (nativeModule as any).addListener(
-        "mediaControlEvent",
-        this._dispatchMediaControlEvent,
-      );
-      (nativeModule as any).addListener(
-        "volumeChangeEvent",
-        this._dispatchVolumeChangeEvent,
-      );
+      // (Re)subscribe to native events exactly once
+      removeNativeSubscriptions();
+      nativeSubscriptions = [
+        (nativeModule as any).addListener(
+          "mediaControlEvent",
+          this._dispatchMediaControlEvent,
+        ),
+      ];
     } catch (error) {
       if (error instanceof ValidationError) {
         throw error;
@@ -539,8 +527,7 @@ class ExtendedExpoMediaControlModule {
       await nativeModule.disableMediaControls();
 
       // Remove all native event listeners
-      (nativeModule as any).removeAllListeners("mediaControlEvent");
-      (nativeModule as any).removeAllListeners("volumeChangeEvent");
+      removeNativeSubscriptions();
     } catch (error) {
       console.error("Failed to disable media controls:", error);
       throw error;
@@ -553,10 +540,6 @@ class ExtendedExpoMediaControlModule {
    */
   updateMetadata = async (metadata: MediaMetadata): Promise<void> => {
     try {
-      console.log(
-        "📱 JS: Updating metadata:",
-        JSON.stringify(metadata, null, 2),
-      );
       // Validate input
       validateMetadata(metadata);
 
@@ -565,11 +548,6 @@ class ExtendedExpoMediaControlModule {
       const cleanMetadata = Object.fromEntries(
         Object.entries(metadata).filter(([_, value]) => value !== undefined),
       ) as MediaMetadata;
-
-      console.log(
-        "📱 JS: Sending cleaned metadata to native:",
-        JSON.stringify(cleanMetadata, null, 2),
-      );
 
       await nativeModule.updateMetadata(cleanMetadata);
     } catch (error) {
@@ -691,7 +669,6 @@ class ExtendedExpoMediaControlModule {
    * @returns Function to remove the listener
    */
   addListener = (listener: MediaControlEventListener): (() => void) => {
-    console.log("📱 JS: Adding media control event listener");
     eventListeners.mediaControl.push(listener);
 
     // Return removal function
@@ -704,31 +681,12 @@ class ExtendedExpoMediaControlModule {
   };
 
   /**
-   * Add listener for volume change events
-   * These events are triggered when system volume changes
-   * @param listener Function to call when volume changes
-   * @returns Function to remove the listener
-   */
-  addVolumeChangeListener = (listener: VolumeChangeListener): (() => void) => {
-    eventListeners.volumeChange.push(listener);
-
-    // Return removal function
-    return () => {
-      const index = eventListeners.volumeChange.indexOf(listener);
-      if (index > -1) {
-        eventListeners.volumeChange.splice(index, 1);
-      }
-    };
-  };
-
-  /**
    * Remove all event listeners for all event types
    * Cleans up all subscribed event handlers
    * @returns Promise that resolves when all listeners are removed
    */
   removeAllListeners = async (): Promise<void> => {
     eventListeners.mediaControl.length = 0;
-    eventListeners.volumeChange.length = 0;
   };
 
   // =============================================
@@ -741,27 +699,11 @@ class ExtendedExpoMediaControlModule {
    * This will be called by the native modules when control events occur
    */
   _dispatchMediaControlEvent = (event: MediaControlEvent): void => {
-    console.log("📱 JS: Dispatching media control event:", event);
-
     eventListeners.mediaControl.forEach((listener) => {
       try {
         listener(event);
       } catch (error) {
         console.error("Error in media control event listener:", error);
-      }
-    });
-  };
-
-  /**
-   * Internal method to dispatch volume change events
-   * This will be called by the native modules when volume changes
-   */
-  _dispatchVolumeChangeEvent = (change: VolumeChange): void => {
-    eventListeners.volumeChange.forEach((listener) => {
-      try {
-        listener(change);
-      } catch (error) {
-        console.error("Error in volume change event listener:", error);
       }
     });
   };

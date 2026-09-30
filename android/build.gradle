@@ -1,7 +1,12 @@
 apply plugin: 'com.android.library'
 
 group = 'expo.modules.mediacontrol'
-version = '0.1.0'
+version = '2.0.0'
+
+// Simple helper that allows the root project to override versions declared by this library.
+def safeExtGet(prop, fallback) {
+  rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback
+}
 
 def expoModulesCorePlugin = new File(project(":expo-modules-core").projectDir.absolutePath, "ExpoModulesCorePlugin.gradle")
 apply from: expoModulesCorePlugin
@@ -16,12 +21,6 @@ def useManagedAndroidSdkVersions = false
 if (useManagedAndroidSdkVersions) {
   useDefaultAndroidSdkVersions()
 } else {
-  buildscript {
-    // Simple helper that allows the root project to override versions declared by this library.
-    ext.safeExtGet = { prop, fallback ->
-      rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback
-    }
-  }
   project.android {
     compileSdkVersion safeExtGet("compileSdkVersion", 36)
     defaultConfig {
@@ -35,7 +34,7 @@ android {
   namespace "expo.modules.mediacontrol"
   defaultConfig {
     versionCode 1
-    versionName "0.1.0"
+    versionName "2.0.0"
   }
   lintOptions {
     abortOnError false
@@ -43,11 +42,12 @@ android {
 }
 
 dependencies {
-  // Media Compat dependencies for MediaSession and notification support
-  implementation "androidx.media:media:1.7.0"
-  implementation "androidx.core:core:1.12.0"
-  
-  // Coroutines support
-  implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"
-  implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3"
+  // Media3 session (MediaSession, notification and foreground service handling).
+  // Defaults to the version used by expo-audio so both modules share one Media3 version;
+  // override with `expoMediaControlMedia3Version` in the root project's ext block.
+  def media3Version = safeExtGet("expoMediaControlMedia3Version", "1.9.0")
+  implementation "androidx.media3:media3-session:${media3Version}"
+  implementation "androidx.media3:media3-common:${media3Version}"
+  implementation "androidx.core:core:1.13.1"
+  implementation "com.google.guava:guava:33.3.1-android"
 }
