@@ -467,7 +467,17 @@ declare class ExpoMediaControlNativeModule extends NativeModule {
 const nativeModule =
   requireNativeModule<ExpoMediaControlNativeModule>("ExpoMediaControl");
 
-console.log("📱 JS: Native module loaded:", nativeModule);
+/**
+ * Subscriptions to native events. Kept so that calling enableMediaControls()
+ * again (e.g. to change capabilities) does not register duplicate listeners,
+ * which would dispatch every remote command more than once.
+ */
+let nativeSubscriptions: { remove: () => void }[] = [];
+
+function removeNativeSubscriptions(): void {
+  nativeSubscriptions.forEach((subscription) => subscription.remove());
+  nativeSubscriptions = [];
+}
 
 /**
  * Map to store event listeners for manual management
@@ -505,15 +515,18 @@ class ExtendedExpoMediaControlModule {
 
       await nativeModule.enableMediaControls(options);
 
-      // Add native event listeners
-      (nativeModule as any).addListener(
-        "mediaControlEvent",
-        this._dispatchMediaControlEvent,
-      );
-      (nativeModule as any).addListener(
-        "volumeChangeEvent",
-        this._dispatchVolumeChangeEvent,
-      );
+      // (Re)subscribe to native events exactly once
+      removeNativeSubscriptions();
+      nativeSubscriptions = [
+        (nativeModule as any).addListener(
+          "mediaControlEvent",
+          this._dispatchMediaControlEvent,
+        ),
+        (nativeModule as any).addListener(
+          "volumeChange",
+          this._dispatchVolumeChangeEvent,
+        ),
+      ];
     } catch (error) {
       if (error instanceof ValidationError) {
         throw error;
@@ -539,8 +552,7 @@ class ExtendedExpoMediaControlModule {
       await nativeModule.disableMediaControls();
 
       // Remove all native event listeners
-      (nativeModule as any).removeAllListeners("mediaControlEvent");
-      (nativeModule as any).removeAllListeners("volumeChangeEvent");
+      removeNativeSubscriptions();
     } catch (error) {
       console.error("Failed to disable media controls:", error);
       throw error;
@@ -553,10 +565,6 @@ class ExtendedExpoMediaControlModule {
    */
   updateMetadata = async (metadata: MediaMetadata): Promise<void> => {
     try {
-      console.log(
-        "📱 JS: Updating metadata:",
-        JSON.stringify(metadata, null, 2),
-      );
       // Validate input
       validateMetadata(metadata);
 
@@ -565,11 +573,6 @@ class ExtendedExpoMediaControlModule {
       const cleanMetadata = Object.fromEntries(
         Object.entries(metadata).filter(([_, value]) => value !== undefined),
       ) as MediaMetadata;
-
-      console.log(
-        "📱 JS: Sending cleaned metadata to native:",
-        JSON.stringify(cleanMetadata, null, 2),
-      );
 
       await nativeModule.updateMetadata(cleanMetadata);
     } catch (error) {
@@ -691,7 +694,6 @@ class ExtendedExpoMediaControlModule {
    * @returns Function to remove the listener
    */
   addListener = (listener: MediaControlEventListener): (() => void) => {
-    console.log("📱 JS: Adding media control event listener");
     eventListeners.mediaControl.push(listener);
 
     // Return removal function
@@ -741,8 +743,6 @@ class ExtendedExpoMediaControlModule {
    * This will be called by the native modules when control events occur
    */
   _dispatchMediaControlEvent = (event: MediaControlEvent): void => {
-    console.log("📱 JS: Dispatching media control event:", event);
-
     eventListeners.mediaControl.forEach((listener) => {
       try {
         listener(event);

@@ -9,10 +9,12 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.os.Binder
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.view.KeyEvent
 import android.support.v4.media.MediaBrowserCompat
 import android.support.v4.media.MediaDescriptionCompat
 import android.support.v4.media.MediaMetadataCompat
@@ -20,6 +22,7 @@ import android.support.v4.media.RatingCompat
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
 import androidx.core.app.NotificationCompat
+import androidx.core.content.IntentCompat
 import androidx.media.MediaBrowserServiceCompat
 import androidx.media.app.NotificationCompat as MediaNotificationCompat
 import androidx.media.session.MediaButtonReceiver
@@ -55,6 +58,9 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
     const val ACTION_PREVIOUS = "expo.modules.mediacontrol.PREVIOUS"
     const val ACTION_SKIP_FORWARD = "expo.modules.mediacontrol.SKIP_FORWARD"
     const val ACTION_SKIP_BACKWARD = "expo.modules.mediacontrol.SKIP_BACKWARD"
+
+    // Largest artwork edge (px) we decode; bigger images waste memory and can exceed binder limits
+    private const val MAX_ARTWORK_SIZE = 1024
   }
 
   // Service binder for local binding
@@ -64,7 +70,6 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
 
   private val binder = MediaServiceBinder()
   private lateinit var mediaSession: MediaSessionCompat
-  private lateinit var stateBuilder: PlaybackStateCompat.Builder
   private var mediaMetadata: MediaMetadataCompat? = null
   
   // Current state tracking
@@ -117,8 +122,14 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
   override fun onDestroy() {
     super.onDestroy()
     serviceScope.cancel()
-    unregisterReceiver(mediaActionReceiver)
-    mediaSession.release()
+    try {
+      unregisterReceiver(mediaActionReceiver)
+    } catch (e: IllegalArgumentException) {
+      // Receiver was never registered (onCreate failed early)
+    }
+    if (::mediaSession.isInitialized) {
+      mediaSession.release()
+    }
     
     // Reset foreground state flag
     isForegroundService = false
@@ -214,11 +225,7 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
       )
       
       // Initialize playback state
-      stateBuilder = PlaybackStateCompat.Builder()
-        .setActions(getAvailableActions())
-        .setState(PlaybackStateCompat.STATE_NONE, 0, 1.0f)
-      
-      setPlaybackState(stateBuilder.build())
+      setPlaybackState(buildPlaybackState())
       
       // Set session token for MediaBrowserService
       setSessionToken(sessionToken)
@@ -330,6 +337,36 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
       }
     }
 
+    override fun onCustomAction(action: String?, extras: Bundle?) {
+      // Android 13+ renders skip forward/backward buttons from custom actions
+      when (action) {
+        ACTION_SKIP_FORWARD -> onFastForward()
+        ACTION_SKIP_BACKWARD -> onRewind()
+      }
+    }
+
+    override fun onMediaButtonEvent(mediaButtonEvent: Intent?): Boolean {
+      // Many Bluetooth headsets and car kits only send NEXT/PREVIOUS keys. When track
+      // navigation is disabled but skip forward/backward is enabled, map those keys to
+      // skip events so the hardware buttons still do something useful.
+      val keyEvent = mediaButtonEvent?.let {
+        IntentCompat.getParcelableExtra(it, Intent.EXTRA_KEY_EVENT, KeyEvent::class.java)
+      }
+      if (keyEvent != null && keyEvent.action == KeyEvent.ACTION_DOWN) {
+        when (keyEvent.keyCode) {
+          KeyEvent.KEYCODE_MEDIA_NEXT -> if (!isCapabilityEnabled("nextTrack") && isCapabilityEnabled("skipForward")) {
+            onFastForward()
+            return true
+          }
+          KeyEvent.KEYCODE_MEDIA_PREVIOUS -> if (!isCapabilityEnabled("previousTrack") && isCapabilityEnabled("skipBackward")) {
+            onRewind()
+            return true
+          }
+        }
+      }
+      return super.onMediaButtonEvent(mediaButtonEvent)
+    }
+
     override fun onSetRating(rating: RatingCompat) {
       try {
         val data = mapOf(
@@ -396,38 +433,32 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
       builder.putLong(MediaMetadataCompat.METADATA_KEY_NUM_TRACKS, trackCount)
     }
 
-    // Handle artwork
-    metadata["artwork"]?.let { artworkData ->
-      if (artworkData is Map<*, *>) {
-        val uri = artworkData["uri"]?.toString()
-        uri?.let { artworkUri ->
-          // Cancel any in-flight artwork load to prevent stale results overwriting newer metadata
-          artworkLoadJob?.cancel()
-          artworkLoadJob = serviceScope.launch {
-            try {
-              val bitmap = loadArtwork(artworkUri)
-              if (bitmap != null) {
-                builder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, bitmap)
-              } else {
-                println("⚠️ Artwork not found at URI: $artworkUri, updating metadata without artwork")
-              }
-            } catch (e: Exception) {
-              println("⚠️ Failed to load artwork: ${e.message}, updating metadata without artwork")
-            }
-            // Always update metadata, with or without artwork
-            mediaMetadata = builder.build()
-            mediaSession.setMetadata(mediaMetadata)
-            updateNotification()
-          }
-          return // Exit early to handle async artwork loading
-        }
-      }
-    }
-    
-    // Set metadata without artwork
+    // Cancel any in-flight artwork load so a slow image for a previous track can
+    // never overwrite this (newer) metadata
+    artworkLoadJob?.cancel()
+    artworkLoadJob = null
+
+    // Publish text metadata immediately so track changes show up without waiting for artwork
     mediaMetadata = builder.build()
     mediaSession.setMetadata(mediaMetadata)
     updateNotification()
+
+    // Then load artwork asynchronously and republish once it is available
+    val artworkUri = (metadata["artwork"] as? Map<*, *>)?.get("uri")?.toString()
+    if (!artworkUri.isNullOrEmpty()) {
+      artworkLoadJob = serviceScope.launch {
+        val bitmap = loadArtwork(artworkUri)
+        if (bitmap == null) {
+          println("⚠️ Artwork not available at URI: $artworkUri, keeping metadata without artwork")
+          return@launch
+        }
+        ensureActive()
+        builder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, bitmap)
+        mediaMetadata = builder.build()
+        mediaSession.setMetadata(mediaMetadata)
+        updateNotification()
+      }
+    }
   }
 
   fun updatePlaybackState(state: Int, position: Double?, playbackRate: Double?) {
@@ -458,19 +489,58 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
   }
 
   private fun updatePlaybackState() {
-    // Use the stored playback rate which reflects actual playback speed
-    // This allows Android to calculate progress correctly between updates
-    stateBuilder
+    mediaSession.setPlaybackState(buildPlaybackState())
+  }
+
+  /**
+   * Build a fresh PlaybackState (a new builder each time so custom actions never accumulate).
+   * Uses the stored playback rate so Android can extrapolate progress between updates.
+   */
+  private fun buildPlaybackState(): PlaybackStateCompat {
+    val builder = PlaybackStateCompat.Builder()
       .setActions(getAvailableActions())
       .setState(currentPlaybackState, currentPosition, currentPlaybackRate)
 
-    mediaSession.setPlaybackState(stateBuilder.build())
+    // Android 13+ builds the media controls from the session, not from notification actions,
+    // and has no slot for ACTION_REWIND/ACTION_FAST_FORWARD. Skip buttons must be exposed as
+    // custom actions; the system puts them in the previous/next slots when those are unused.
+    // Backward is added first so it lands on the left (previous) slot. Only added when requested
+    // explicitly so the default layout (previous / play-pause / next) stays unchanged.
+    val caps = capabilities.orEmpty()
+    if ("skipBackward" in caps) {
+      builder.addCustomAction(
+        PlaybackStateCompat.CustomAction.Builder(
+          ACTION_SKIP_BACKWARD,
+          "Skip Backward",
+          R.drawable.expo_media_control_skip_backward
+        ).build()
+      )
+    }
+    if ("skipForward" in caps) {
+      builder.addCustomAction(
+        PlaybackStateCompat.CustomAction.Builder(
+          ACTION_SKIP_FORWARD,
+          "Skip Forward",
+          R.drawable.expo_media_control_skip_forward
+        ).build()
+      )
+    }
+    return builder.build()
+  }
+
+  /**
+   * Returns true when the capability is enabled (null capabilities = all enabled, for backward compat)
+   */
+  private fun isCapabilityEnabled(command: String): Boolean {
+    val caps = capabilities ?: return true
+    return caps.contains(command)
   }
 
   private fun getAvailableActions(): Long {
     val caps = capabilities ?: return (
         PlaybackStateCompat.ACTION_PLAY or
         PlaybackStateCompat.ACTION_PAUSE or
+        PlaybackStateCompat.ACTION_PLAY_PAUSE or
         PlaybackStateCompat.ACTION_STOP or
         PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
         PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS or
@@ -483,8 +553,8 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
     var actions = 0L
     for (cap in caps) {
       actions = actions or when (cap) {
-        "play" -> PlaybackStateCompat.ACTION_PLAY
-        "pause" -> PlaybackStateCompat.ACTION_PAUSE
+        "play" -> PlaybackStateCompat.ACTION_PLAY or PlaybackStateCompat.ACTION_PLAY_PAUSE
+        "pause" -> PlaybackStateCompat.ACTION_PAUSE or PlaybackStateCompat.ACTION_PLAY_PAUSE
         "stop" -> PlaybackStateCompat.ACTION_STOP
         "nextTrack" -> PlaybackStateCompat.ACTION_SKIP_TO_NEXT
         "previousTrack" -> PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS
@@ -665,7 +735,7 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
         }
         "stop" -> {
           builder.addAction(
-            android.R.drawable.ic_media_pause,
+            R.drawable.expo_media_control_stop,
             "Stop",
             createPendingIntent(ACTION_STOP)
           )
@@ -802,24 +872,42 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
   private suspend fun loadArtwork(uri: String): Bitmap? {
     return try {
       withContext(Dispatchers.IO) {
-        if (uri.startsWith("http")) {
-          // Load remote artwork on IO thread (simplified - you might want to add caching)
-          val url = java.net.URL(uri)
-          val connection = url.openConnection()
-          connection.connectTimeout = 5000 // 5 second timeout
-          connection.readTimeout = 5000    // 5 second read timeout
-          android.graphics.BitmapFactory.decodeStream(connection.getInputStream())
-        } else {
-          // Load local artwork
-          contentResolver.openInputStream(android.net.Uri.parse(uri))?.use { inputStream ->
-            android.graphics.BitmapFactory.decodeStream(inputStream)
+        val bytes = if (uri.startsWith("http://") || uri.startsWith("https://")) {
+          val connection = java.net.URL(uri).openConnection() as java.net.HttpURLConnection
+          try {
+            connection.connectTimeout = 5000 // 5 second timeout
+            connection.readTimeout = 5000    // 5 second read timeout
+            connection.inputStream.use { it.readBytes() }
+          } finally {
+            connection.disconnect()
           }
-        }
+        } else {
+          contentResolver.openInputStream(android.net.Uri.parse(uri))?.use { it.readBytes() }
+        } ?: return@withContext null
+        decodeSampledBitmap(bytes)
       }
+    } catch (e: CancellationException) {
+      throw e
     } catch (e: Exception) {
       println("❌ Failed to load artwork: ${e.message}")
       null
     }
+  }
+
+  /**
+   * Decode artwork downsampled to at most MAX_ARTWORK_SIZE on its longest edge
+   */
+  private fun decodeSampledBitmap(bytes: ByteArray): Bitmap? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+    var sampleSize = 1
+    while (maxOf(bounds.outWidth, bounds.outHeight) / (sampleSize * 2) >= MAX_ARTWORK_SIZE) {
+      sampleSize *= 2
+    }
+    val options = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+    return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
   }
 
   fun getMediaSession(): MediaSessionCompat = mediaSession

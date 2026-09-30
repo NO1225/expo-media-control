@@ -54,18 +54,7 @@ class ExpoMediaControlModule : Module() {
         // Apply any pending metadata or state updates
         moduleScope.launch {
           try {
-            // Update configuration
-            val androidConfig = controlOptions["android"] as? Map<String, Any>
-            if (androidConfig != null) {
-              mediaService?.updateConfiguration(androidConfig)
-            }
-
-            // Forward capabilities to service
-            @Suppress("UNCHECKED_CAST")
-            val caps = controlOptions["capabilities"] as? List<String>
-            @Suppress("UNCHECKED_CAST")
-            val compactCaps = controlOptions["compactCapabilities"] as? List<String>
-            mediaService?.updateCapabilities(caps, compactCaps)
+            applyControlOptionsToService()
 
             if (currentMetadata.isNotEmpty()) {
               mediaService?.updateMetadata(currentMetadata.toMap())
@@ -179,18 +168,6 @@ class ExpoMediaControlModule : Module() {
         println("🤖 ExpoMediaControl module created")
       } catch (e: Exception) {
         println("❌ Error during module creation: ${e.message}")
-      }
-    }
-    
-    OnDestroy {
-      try {
-        if (isControlsEnabled) {
-          disableMediaControls()
-        }
-        moduleInstance = null
-        println("🤖 ExpoMediaControl module destroyed")
-      } catch (e: Exception) {
-        println("❌ Error during module cleanup: ${e.message}")
       }
     }
 
@@ -314,6 +291,9 @@ class ExpoMediaControlModule : Module() {
         if (isControlsEnabled) {
           disableMediaControls()
         }
+        if (moduleInstance === this@ExpoMediaControlModule) {
+          moduleInstance = null
+        }
         println("🤖 ExpoMediaControl module destroyed and cleaned up")
       } catch (e: Exception) {
         println("⚠️ Error during module cleanup: ${e.message}")
@@ -332,6 +312,17 @@ class ExpoMediaControlModule : Module() {
    */
   private fun enableMediaControls(options: Map<String, Any>) {
     try {
+      // Already connected to the service: just apply the new configuration.
+      // bindService() would not call onServiceConnected() again for an existing binding,
+      // so re-binding here would silently drop the new capabilities.
+      if (isControlsEnabled && isServiceBound && mediaService != null) {
+        controlOptions.clear()
+        controlOptions.putAll(options)
+        applyControlOptionsToService()
+        println("🤖 Media controls reconfigured")
+        return
+      }
+
       // Recreate coroutine scope to ensure it's fresh
       try {
         moduleScope.cancel() // Cancel any existing scope
@@ -672,6 +663,25 @@ class ExpoMediaControlModule : Module() {
   // =============================================
   // UTILITY METHODS
   // =============================================
+
+  /**
+   * Forward the current control options (skip interval, capabilities) to the service
+   */
+  private fun applyControlOptionsToService() {
+    val service = mediaService ?: return
+
+    @Suppress("UNCHECKED_CAST")
+    val androidConfig = controlOptions["android"] as? Map<String, Any>
+    if (androidConfig != null) {
+      service.updateConfiguration(androidConfig)
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    val caps = controlOptions["capabilities"] as? List<String>
+    @Suppress("UNCHECKED_CAST")
+    val compactCaps = controlOptions["compactCapabilities"] as? List<String>
+    service.updateCapabilities(caps, compactCaps)
+  }
 
   /**
    * Check if we can start a foreground service based on current app state

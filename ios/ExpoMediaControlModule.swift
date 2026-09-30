@@ -38,6 +38,9 @@ public class ExpoMediaControlModule: Module {
 
   /// Enabled capabilities (nil = all enabled for backward compatibility)
   private var enabledCapabilities: [String]? = nil
+
+  /// Incremented on every metadata update so late artwork loads for an older track are discarded
+  private var metadataGeneration: Int = 0
   
   /// Remote command center reference for managing remote controls
   private var remoteCommandCenter: MPRemoteCommandCenter {
@@ -159,9 +162,17 @@ public class ExpoMediaControlModule: Module {
    * Sets up audio session, registers command handlers, and prepares for media control
    */
   private func enableMediaControls(options: [String: Any]?) async throws {
-    // Don't enable if already enabled
+    // Already enabled: apply the new configuration (capabilities, skip interval) without
+    // touching the audio session, so calling this again reconfigures the controls
     if isControlsEnabled {
-      print("📱 Media controls already enabled")
+      controlOptions = options ?? [:]
+      enabledCapabilities = options?["capabilities"] as? [String]
+      await MainActor.run {
+        unregisterRemoteCommandHandlers()
+        registerRemoteCommandHandlers()
+        updateRatingCommands()
+      }
+      print("📱 Media controls reconfigured")
       return
     }
     
@@ -212,9 +223,12 @@ public class ExpoMediaControlModule: Module {
     // Stop receiving remote control events
     UIApplication.shared.endReceivingRemoteControlEvents()
     
-    // Clear now playing info
-    nowPlayingInfoCenter.playbackState = .unknown
-    nowPlayingInfoCenter.nowPlayingInfo = nil
+    // Clear now playing info (and invalidate any in-flight artwork load)
+    metadataGeneration += 1
+    DispatchQueue.main.async { [weak self] in
+      self?.nowPlayingInfoCenter.playbackState = .unknown
+      self?.nowPlayingInfoCenter.nowPlayingInfo = nil
+    }
     
     // Try to deactivate audio session cleanly
     do {
@@ -332,28 +346,31 @@ public class ExpoMediaControlModule: Module {
 
     // Set playback rate - use the stored rate which reflects actual playback speed
     nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = currentPlaybackRate
-    
-    // Handle artwork asynchronously
+
+    metadataGeneration += 1
+    let generation = metadataGeneration
+    let playbackState = currentPlaybackState
+
+    // Publish text metadata immediately. All Now Playing writes go through the main queue so
+    // they are applied in call order (e.g. updateMetadata followed by updatePlaybackState).
+    DispatchQueue.main.async { [weak self] in
+      self?.nowPlayingInfoCenter.playbackState = self?.resolveNowPlayingPlaybackState(playbackState) ?? .unknown
+      self?.nowPlayingInfoCenter.nowPlayingInfo = nowPlayingInfo
+    }
+
+    // Load artwork in the background and merge it in when ready, unless a newer track was set meanwhile
     if let artworkDict = metadata["artwork"] as? [String: Any],
        let uri = artworkDict["uri"] as? String {
-      await loadArtwork(uri: uri) { [weak self] artwork in
-        if let artwork = artwork {
-          nowPlayingInfo[MPMediaItemPropertyArtwork] = artwork
+      Task { [weak self] in
+        await self?.loadArtwork(uri: uri) { artwork in
+          guard let artwork = artwork else { return }
+          DispatchQueue.main.async {
+            guard let self = self, generation == self.metadataGeneration else { return }
+            var info = self.nowPlayingInfoCenter.nowPlayingInfo ?? [:]
+            info[MPMediaItemPropertyArtwork] = artwork
+            self.nowPlayingInfoCenter.nowPlayingInfo = info
+          }
         }
-        
-        // Update now playing info center
-        DispatchQueue.main.async {
-          let playbackState = self?.resolveNowPlayingPlaybackState(self?.currentPlaybackState ?? 0) ?? .unknown
-          self?.nowPlayingInfoCenter.playbackState = playbackState
-          self?.nowPlayingInfoCenter.nowPlayingInfo = nowPlayingInfo
-        }
-      }
-    } else {
-      // Update without artwork
-      DispatchQueue.main.async { [weak self] in
-        let playbackState = self?.resolveNowPlayingPlaybackState(self?.currentPlaybackState ?? 0) ?? .unknown
-        self?.nowPlayingInfoCenter.playbackState = playbackState
-        self?.nowPlayingInfoCenter.nowPlayingInfo = nowPlayingInfo
       }
     }
     
@@ -389,20 +406,24 @@ public class ExpoMediaControlModule: Module {
       }
     }
 
-    // Update now playing info with new playback information
-    var nowPlayingInfo = nowPlayingInfoCenter.nowPlayingInfo ?? [:]
+    let position = currentPosition
+    let rate = currentPlaybackRate
 
-    // Update elapsed time
-    nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = currentPosition
-
-    // Update playback rate - use the stored rate which reflects actual playback speed
-    // This allows iOS to calculate progress correctly between updates
-    nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = currentPlaybackRate
-
-    // Update the system
+    // Read-modify-write on the main queue so we never overwrite metadata that was queued
+    // by an earlier updateMetadata call with a stale copy of the info dictionary
     DispatchQueue.main.async { [weak self] in
-      self?.nowPlayingInfoCenter.playbackState = self?.resolveNowPlayingPlaybackState(state) ?? .unknown
-      self?.nowPlayingInfoCenter.nowPlayingInfo = nowPlayingInfo
+      guard let self = self else { return }
+      var nowPlayingInfo = self.nowPlayingInfoCenter.nowPlayingInfo ?? [:]
+
+      // Update elapsed time
+      nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = position
+
+      // Update playback rate - use the stored rate which reflects actual playback speed
+      // This allows iOS to calculate progress correctly between updates
+      nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = rate
+
+      self.nowPlayingInfoCenter.playbackState = self.resolveNowPlayingPlaybackState(state)
+      self.nowPlayingInfoCenter.nowPlayingInfo = nowPlayingInfo
     }
 
     print("📱 Playback state updated: \(state), position: \(currentPosition), rate: \(currentPlaybackRate)")
@@ -442,7 +463,8 @@ public class ExpoMediaControlModule: Module {
     // Update rating commands to reflect disabled state
     updateRatingCommands()
     
-    // Clear now playing info
+    // Clear now playing info (and invalidate any in-flight artwork load)
+    metadataGeneration += 1
     DispatchQueue.main.async { [weak self] in
       self?.nowPlayingInfoCenter.playbackState = .unknown
       self?.nowPlayingInfoCenter.nowPlayingInfo = nil
@@ -687,6 +709,11 @@ public class ExpoMediaControlModule: Module {
   private func updateRatingCommands() {
     let commandCenter = remoteCommandCenter
     
+    // Always drop existing targets first; this runs on every metadata update and
+    // re-adding targets would otherwise fire duplicate rating events
+    commandCenter.likeCommand.removeTarget(nil)
+    commandCenter.dislikeCommand.removeTarget(nil)
+
     if isRatingEnabled {
       // Enable rating commands
       commandCenter.likeCommand.isEnabled = true
@@ -707,10 +734,7 @@ public class ExpoMediaControlModule: Module {
     } else {
       // Disable and remove rating command handlers
       commandCenter.likeCommand.isEnabled = false
-      commandCenter.likeCommand.removeTarget(nil)
-      
       commandCenter.dislikeCommand.isEnabled = false
-      commandCenter.dislikeCommand.removeTarget(nil)
       
       print("📱 Rating commands disabled")
     }
