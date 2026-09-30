@@ -22,7 +22,6 @@ A comprehensive, production-ready media control module for Expo and React Native
 - ⏯️ **Comprehensive Playback Controls** - Play, pause, stop, next, previous, seek, skip, and rating
 - ⚡ **Variable Playback Rate Support** - Accurate progress tracking at any playback speed (0.5x, 1.5x, 2x, etc.)
 - 📢 **Background Audio Support** - Continue playback when app is backgrounded
-- 📳 **Volume Control Integration** - Monitor and respond to system volume changes
 - 🎯 **Event-Driven Architecture** - React to user interactions with system controls
 - 🛠️ **Full TypeScript Support** - Complete type definitions and IntelliSense support
 - 🔧 **Highly Configurable** - Extensive customization options for both platforms
@@ -68,7 +67,7 @@ Add the plugin to your `app.json` or `app.config.js`:
 | `audioSessionCategory` | `string` | `"playback"` | Audio session category for iOS |
 | `notificationIcon` | `string` | `undefined` | Path to custom notification icon for Android (e.g., `"./assets/notification-icon.png"`) - see [Custom Icon Guide](./CUSTOM_NOTIFICATION_ICON.md) |
 
-**Note:** The plugin configuration is for **build-time** setup only. Runtime configuration (like `skipInterval`, notification appearance, etc.) should be passed to `enableMediaControls()`. See [API Reference](#api-reference) below.
+**Note:** The plugin configuration is for **build-time** setup only. Runtime configuration (like `skipInterval` and which buttons are shown) should be passed to `enableMediaControls()`. See [API Reference](#api-reference) below.
 
 **💡 Custom Notification Icon:** Android requires monochrome (white on transparent) icons for notifications. See our [detailed guide](./CUSTOM_NOTIFICATION_ICON.md) on creating and using custom icons.
 
@@ -115,10 +114,6 @@ export default function MusicPlayer() {
             Command.PLAY,
             Command.NEXT_TRACK,
           ],
-          notification: {
-            icon: 'ic_music_note',
-            color: '#1976D2',
-          },
         });
 
         // Set initial metadata
@@ -236,13 +231,7 @@ Enables media controls with specified configuration.
 ```typescript
 interface MediaControlOptions {
   capabilities?: Command[];          // Controls which commands are enabled on both platforms
-  compactCapabilities?: Command[];   // Android: which buttons show in compact notification (max 3)
-  notification?: {
-    icon?: string;              // Notification icon resource name (bare workflow only - use plugin config for managed workflow)
-    largeIcon?: MediaArtwork;   // Large icon for rich notifications
-    color?: string;             // Notification accent color (Android)
-    showWhenClosed?: boolean;   // Keep notification when app closes
-  };
+  compactCapabilities?: Command[];   // Android: commands next to play/pause, in display order (max 3)
   ios?: {
     skipInterval?: number;      // Skip interval in seconds (default: 15)
   };
@@ -266,11 +255,6 @@ await MediaControl.enableMediaControls({
     Command.PLAY,         // play/pause are treated as a single toggle button
     Command.NEXT_TRACK,
   ],
-  notification: {
-    // Note: For managed workflow, set icon in app.json plugin config instead
-    // icon: 'ic_music_note',   // Bare workflow only: reference existing drawable resource
-    color: '#1976D2',
-  },
   ios: {
     skipInterval: 15,
   },
@@ -290,16 +274,14 @@ interface MediaMetadata {
   artist?: string;
   album?: string;
   artwork?: MediaArtwork;
-  duration?: number;
-  elapsedTime?: number;
+  duration?: number;       // seconds
+  elapsedTime?: number;    // seconds - same as passing a position to updatePlaybackState()
   genre?: string;
   trackNumber?: number;
   albumTrackCount?: number;
-  date?: string;
+  date?: string;           // Android uses the year only
   rating?: MediaRating;
-  color?: string;
-  colorized?: boolean;
-  isLiveStream?: boolean;
+  isLiveStream?: boolean;  // hides progress / seeking
 }
 
 await MediaControl.updateMetadata({
@@ -363,8 +345,6 @@ await MediaControl.updatePlaybackState(PlaybackState.BUFFERING);
 
 ### Event Handling
 
-### Event Handling
-
 #### Media Control Events
 
 ```typescript
@@ -390,17 +370,6 @@ const removeListener = MediaControl.addListener((event: MediaControlEvent) => {
 removeListener();
 ```
 
-#### Volume Change Events
-
-```typescript
-const removeVolumeListener = MediaControl.addVolumeChangeListener(
-  (change: VolumeChange) => {
-    console.log('Volume:', change.volume);
-    console.log('User initiated:', change.userInitiated);
-  }
-);
-```
-
 ### Available Commands
 
 ```typescript
@@ -414,20 +383,7 @@ enum Command {
   SKIP_BACKWARD = 'skipBackward',
   SEEK = 'seek',
   SET_RATING = 'setRating',
-  VOLUME_UP = 'volumeUp',
-  VOLUME_DOWN = 'volumeDown',
 }
-```
-
-#### `addVolumeChangeListener(listener: VolumeChangeListener): () => void`
-
-Adds a listener for system volume changes.
-
-```typescript
-const removeListener = MediaControl.addVolumeChangeListener((change) => {
-  console.log('Volume:', change.volume); // 0.0 to 1.0
-  console.log('User initiated:', change.userInitiated);
-});
 ```
 
 #### `removeAllListeners(): Promise<void>`
@@ -547,7 +503,7 @@ class PlayerManager {
 
 - **Smooth Native Animation**: System controls animate progress smoothly without interruption
   - iOS Control Center and Lock Screen use native rendering
-  - Android MediaSession notification shows buttery-smooth progress animation
+  - The Android media notification extrapolates progress from the playback speed
   - **Critical for Android**: Frequent updates interrupt the native animation
 - **Accurate Progress Display**: System controls show the correct progress at any playback speed
 - **Better Performance**: Eliminates unnecessary JavaScript ↔ Native bridge calls (500ms → only on state changes)
@@ -557,7 +513,7 @@ class PlayerManager {
 ### Platform Support
 
 - **iOS**: Uses `MPNowPlayingInfoPropertyPlaybackRate` to inform Control Center and Lock Screen
-- **Android**: Uses `PlaybackStateCompat.setState()` playback speed parameter for MediaSession
+- **Android**: The Media3 session extrapolates the position using the playback speed
 
 ## 🎨 Artwork Support
 
@@ -601,22 +557,6 @@ The module supports various artwork sources:
 }
 ```
 
-## 📱 Platform-Specific Features
-
-### iOS Features
-- Control Center integration
-- Lock screen controls
-- CarPlay support (automatic)
-- Apple Watch support (automatic)
-- Background audio with proper audio session management
-
-### Android Features
-- Media notification with custom actions
-- Lock screen controls
-- Android Auto support (automatic)
-- Audio focus management
-- Hardware button support
-
 ## ⚠️ Important Notes
 
 ### Artwork Fallback
@@ -630,10 +570,9 @@ Starting with Android 13 (API 33), the system renders media notification buttons
 - **The gray/colored circular backgrounds** around buttons are a Material Design choice in Android's SystemUI
 - This affects all media apps equally (Spotify, YouTube Music, etc.)
 
-What you **can** control on Android 13+:
-- **Which buttons appear** via `capabilities` (mapped to PlaybackState actions)
-- **Notification color accent** via `notification.color`
-- **Small notification icon** via plugin config or `notification.icon`
+What you **can** control:
+- **Which buttons appear** via `capabilities`, and which ones sit next to play/pause via `compactCapabilities`
+- **Small notification icon** via the `notificationIcon` plugin option
 
 ### iOS Control Center Limitations
 
@@ -662,9 +601,7 @@ This is automatically handled by the plugin when `enableBackgroundAudio` is true
 
 ### Android Permissions
 The following permissions are automatically added:
-- `FOREGROUND_SERVICE` - For background media control
-- `WAKE_LOCK` - To prevent device sleep during playback
-- `ACCESS_NETWORK_STATE` - For artwork loading
+- `FOREGROUND_SERVICE` / `FOREGROUND_SERVICE_MEDIA_PLAYBACK` - For the media playback service
 
 ### Network Security (Android 9+)
 If using HTTP artwork URLs on Android 9+, add network security configuration to allow cleartext traffic.
@@ -694,18 +631,16 @@ If using HTTP artwork URLs on Android 9+, add network security configuration to 
 - Verify notification channel configuration
 - Ensure foreground service permissions
 
-### Debug Mode
+### Native logs
 
-Enable debug logging:
-
-```typescript
-// This will show detailed logs in development
-console.log('Media Control Debug Mode - Check native logs for detailed information');
-```
-
-Check native logs:
 - **iOS**: Xcode console or device logs
 - **Android**: `adb logcat` or Android Studio logs
+
+### Using with expo-audio
+
+Don't call expo-audio's `player.setActiveForLockScreen()` together with this module. Both create a system media session and notification, and the OS routes lock screen, Bluetooth and car buttons to only one of them - the usual symptom is that some buttons "do nothing". Use this module for the system controls and expo-audio only for playback.
+
+On Android, expo-audio's docs mention background playback stopping after ~3 minutes without `setActiveForLockScreen()`. That limit comes from the app not running a foreground service; this module's media service runs in the foreground while you report `PlaybackState.PLAYING`, which serves the same purpose. Start playback (and report `PLAYING`) while the app is in the foreground - Android doesn't allow apps to start a foreground service from the background.
 
 ### Reset Controls
 
@@ -762,8 +697,6 @@ enum Command {
   SKIP_BACKWARD = 'skipBackward',
   SEEK = 'seek',
   SET_RATING = 'setRating',
-  VOLUME_UP = 'volumeUp',
-  VOLUME_DOWN = 'volumeDown',
 }
 ```
 
@@ -799,15 +732,13 @@ interface MediaMetadata {
   album?: string;                    // Album name
   artwork?: MediaArtwork;            // Album artwork
   duration?: number;                 // Track duration in seconds
-  elapsedTime?: number;             // Current position in seconds
+  elapsedTime?: number;             // Current position in seconds (same as updatePlaybackState position)
   genre?: string;                   // Music genre
   trackNumber?: number;             // Track number in album
   albumTrackCount?: number;         // Total tracks in album
-  date?: string;                    // Release date
+  date?: string;                    // Release date (Android uses the year only)
   rating?: MediaRating;             // Track rating
-  color?: string;                   // Notification color (Android)
-  colorized?: boolean;              // Use colorized notification (Android)
-  isLiveStream?: boolean;           // Flags track as a live stream (iOS)
+  isLiveStream?: boolean;           // Flags track as a live stream (hides progress)
 }
 ```
 
@@ -816,13 +747,7 @@ interface MediaMetadata {
 ```typescript
 interface MediaControlOptions {
   capabilities?: Command[];          // Which commands to enable (omit for all)
-  compactCapabilities?: Command[];   // Android compact notification buttons (max 3, omit for first 3)
-  notification?: {                   // Android notification config
-    icon?: string;                   // Small icon resource name (bare workflow)
-    largeIcon?: MediaArtwork;        // Large icon (artwork)
-    color?: string;                  // Background color
-    showWhenClosed?: boolean;        // Show when app closed
-  };
+  compactCapabilities?: Command[];   // Android: commands next to play/pause, in display order (max 3)
   ios?: {                           // iOS-specific config
     skipInterval?: number;           // Skip interval in seconds (default: 15)
   };
@@ -834,20 +759,16 @@ interface MediaControlOptions {
 
 **Capabilities Behavior:**
 - If `capabilities` is omitted, all commands are enabled (backward compatible)
-- On **Android**, only the specified commands appear as notification buttons and PlaybackState actions
+- On **Android**, only the specified commands are available to the notification, lock screen, Bluetooth and other controllers
 - On **iOS**, only the specified commands are registered with the Control Center
 - `play` and `pause` are treated as a single toggle button in Android notifications
 
-**compactCapabilities Behavior:**
-- Android only (iOS Control Center layout is system-controlled)
-- Maximum 3 items
-- If omitted, defaults to the first 3 notification-capable commands from `capabilities`
-- Notification-capable commands: `play`/`pause`, `nextTrack`, `previousTrack`, `skipForward`, `skipBackward`, `stop`
-
-**Android 13+ media controls:**
-- Since Android 13 the system builds the media player (notification shade, lock screen, Bluetooth/car UIs) from the MediaSession rather than from notification buttons, so `compactCapabilities` only affects Android 12 and below.
-- The system layout is fixed: previous slot, play/pause, next slot. `previousTrack`/`nextTrack` take those slots when enabled; otherwise `skipBackward`/`skipForward` are shown there (they are exposed as session custom actions).
-- `stop` is not shown by the system player on Android 13+.
+**compactCapabilities Behavior (Android):**
+- Android shows a fixed layout: a *back* slot, play/pause, a *forward* slot, plus extra buttons in the expanded notification.
+- Write `compactCapabilities` in display order: the command before `PLAY` takes the back slot and the command after it takes the forward slot, e.g. `[SKIP_BACKWARD, PLAY, SKIP_FORWARD]`.
+- If omitted, `previousTrack`/`nextTrack` take the slots when enabled, otherwise `skipBackward`/`skipForward`.
+- Other enabled commands (`skipBackward`, `skipForward`, `previousTrack`, `nextTrack`, `stop`) are shown as extra buttons where the system has room.
+- Maximum 3 items. iOS ignores this option (the Control Center layout is system-controlled).
 - Bluetooth next/previous keys are mapped to `skipForward`/`skipBackward` when `nextTrack`/`previousTrack` are not enabled.
 
 **Changing capabilities at runtime:**
@@ -864,13 +785,14 @@ Call `enableMediaControls()` again with the new options (for example, switching 
 - **Remote Command Center** - Handles all iOS remote control events
 - **AirPlay Support** - Works with AirPlay and Bluetooth devices
 
+> **CarPlay / Android Auto:** Now Playing information appears wherever the OS shows it for any audio app, but this module does not provide a CarPlay or Android Auto app (browsable library, templates). That needs platform entitlements and a content tree, and is planned as a separate package.
+
 ### Android Features
 
-- **MediaSession Integration** - Native Android MediaSession support
+- **Media3 Session** - Built on AndroidX Media3 (`MediaSessionService`), the current Android media API
 - **Notification Controls** - Rich media notifications with custom actions
 - **Lock Screen Controls** - Media controls on Android lock screen
 - **Bluetooth Integration** - Works with Bluetooth headphones and car systems
-- **Android Auto Support** - Compatible with Android Auto
 
 > **Note:** Audio focus management should be handled by your media player (e.g., expo-audio, react-native-video), not by this control module. This module only provides the UI controls.
 
@@ -905,40 +827,6 @@ Configure the plugin in your `app.json`:
   - **Requirements**: Must be monochrome (white on transparent) - see [Custom Icon Guide](./CUSTOM_NOTIFICATION_ICON.md)
   - **Default**: If not specified, a music note icon is created automatically
 - **skipInterval**: Configure via `enableMediaControls()` options instead
-- **Runtime icon**: Use `notification.icon` in `enableMediaControls()` only for bare workflow runtime changes
-
-## 🐛 Troubleshooting
-
-### Common Issues
-
-#### Controls not appearing
-
-1. Ensure you've called `enableMediaControls()` successfully
-2. Check that you've set metadata with `updateMetadata()`
-3. Verify the playback state is set correctly
-4. On iOS, ensure background audio capability is enabled
-
-#### Artwork not loading
-
-1. Verify the artwork URI is accessible
-2. Check network permissions for remote images
-3. Ensure local file paths are correct
-4. Try different image formats (JPEG, PNG are preferred)
-
-#### Notification not showing on Android
-
-1. Verify notification permissions
-2. Check notification channel configuration
-3. Ensure the app has notification access
-4. Try different notification importance levels
-
-### Debug Tips
-
-1. **Enable logging** - Check console output for error messages
-2. **Test on device** - Media controls require physical devices
-3. **Check permissions** - Ensure all required permissions are granted
-4. **Verify configuration** - Double-check plugin configuration in app.json
-5. **Test incrementally** - Enable features one by one to isolate issues
 
 ## 📱 Platform Requirements
 

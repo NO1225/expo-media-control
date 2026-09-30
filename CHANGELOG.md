@@ -5,25 +5,51 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.0.0] - Unreleased
+
+Major release: the Android implementation moves to AndroidX Media3, and APIs that were declared but never implemented are removed.
+
+### 💥 Breaking changes
+- **Android now uses Media3** (`androidx.media3:media3-session`) instead of the deprecated `androidx.media` / `MediaSessionCompat`. The notification, lock screen controls and foreground service are managed by Media3's `MediaSessionService`.
+  - Media3 defaults to `1.9.0` (the version expo-audio uses in SDK 57). Override with `expoMediaControlMedia3Version` in the root `build.gradle` `ext` block.
+  - The notification now uses Media3's standard media notification. `compactCapabilities` chooses which commands sit next to play/pause on **all** Android versions (see README).
+- **Removed `notification` from `MediaControlOptions`** (`icon`, `largeIcon`, `color`, `showWhenClosed`) - these were never read by the native code. Use the `notificationIcon` plugin option for the icon.
+- **Removed `color` and `colorized` from `MediaMetadata`** - never implemented.
+- **Removed `addVolumeChangeListener()`, `VolumeChange`, `VolumeChangeListener`, `Command.VOLUME_UP` and `Command.VOLUME_DOWN`** - no volume events were ever emitted.
+- The Android library manifest no longer declares `WAKE_LOCK`, `ACCESS_NETWORK_STATE` and `RECEIVE_BOOT_COMPLETED` (none were used). Add them to your app if you rely on them elsewhere.
+
+### ✨ Added
+- `elapsedTime` in `updateMetadata()` now sets the position on both platforms (it was ignored before).
+- Android: `date` sets the release year; `rating` is exposed to controllers; `isLiveStream` hides progress and seeking.
 
 ### 🐛 Fixed
-- **Android 13+: skip forward/backward buttons missing** ([#20](https://github.com/NO1225/expo-media-control/issues/20), [#23](https://github.com/NO1225/expo-media-control/issues/23)) - `skipForward`/`skipBackward` are now exposed as MediaSession custom actions, which is what the Android 13+ system media player renders
-- **Reconfiguring capabilities had no effect** ([#23](https://github.com/NO1225/expo-media-control/issues/23)) - calling `enableMediaControls()` again now applies the new capabilities/skip interval on Android (service was already bound, so the new options were dropped) and iOS (the call returned early)
+- **Android 13+: skip forward/backward buttons missing** ([#20](https://github.com/NO1225/expo-media-control/issues/20), [#23](https://github.com/NO1225/expo-media-control/issues/23))
+- **Reconfiguring capabilities had no effect** ([#23](https://github.com/NO1225/expo-media-control/issues/23)) - calling `enableMediaControls()` again now applies the new capabilities and skip interval on Android and iOS
 - **Duplicate events after re-enabling** - JS no longer registers another native listener on every `enableMediaControls()` call
 - **Duplicate rating events on iOS** - like/dislike targets were re-added on every metadata update
-- **Stale track info** - a slow artwork download for a previous track could overwrite the current track's metadata (Android and iOS); text metadata is now published immediately and artwork is merged in when loaded
+- **Stale track info** - a slow artwork download for a previous track could overwrite the current track's metadata (Android and iOS)
 - **iOS metadata race** - `updatePlaybackState()` right after `updateMetadata()` could restore the previous track's info
 - **iOS playback state** - `MPNowPlayingInfoCenter.playbackState` is now kept in sync ([#21](https://github.com/NO1225/expo-media-control/pull/21), thanks @kockar96)
-- Volume change listener subscribed to the wrong native event name
-- Android: large artwork is downsampled before use, HTTP connections are closed, stop button uses a stop icon, duplicate `OnDestroy` removed
+- **Android: `resetControls()` left the notification visible**
+- Bluetooth next/previous keys skip forward/backward when track navigation is disabled ([#22](https://github.com/NO1225/expo-media-control/issues/22))
 - Config plugin no longer adds duplicate Android permissions
 
 ### ⬆️ Updated
-- Expo SDK 57 / React Native 0.86 / TypeScript 6 for development and the example app
+- Expo SDK 57 / React Native 0.86 / TypeScript 6 / ESLint 9 for development and the example app
 - CI uses Node 22
 - Added unit tests for the JS layer
 - Removed verbose debug logging from the JS layer
+- Removed outdated internal summary documents from the repository
+
+### 🔀 Migrating from 1.x
+1. Remove `notification: {...}` from your `enableMediaControls()` options. Set the icon with the `notificationIcon` plugin option.
+2. Remove `color` / `colorized` from `updateMetadata()` calls.
+3. Remove `addVolumeChangeListener()` calls and `VOLUME_UP` / `VOLUME_DOWN` handling.
+4. Check `compactCapabilities`: write it in display order (`[SKIP_BACKWARD, PLAY, SKIP_FORWARD]`). The commands before and after `PLAY` take the slots next to play/pause.
+5. Rebuild the native app (`npx expo prebuild --clean` or a new development build).
+6. If you also use expo-audio, don't enable its `setActiveForLockScreen()` at the same time (two media sessions compete for the system controls).
+
+## [1.0.x]
 
 ### 🔧 Changed
 - **Configuration Cleanup** - Removed redundant configuration options for clearer API
