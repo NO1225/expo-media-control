@@ -5,7 +5,6 @@ import {
     PlaybackState,
     Command,
     MediaControlEvent,
-    VolumeChange,
 } from 'expo-media-control';
 import { Platform } from "react-native";
 
@@ -347,11 +346,6 @@ export class PlayerManager {
                 Command.PLAY,
                 Command.NEXT_TRACK,
             ],
-            notification: {
-                // icon: 'ic_music_note', // For bare workflow only
-                color: '#2196F3',
-                showWhenClosed: true,
-            },
             ios: {
                 skipInterval: 15,
             },
@@ -557,7 +551,6 @@ export class PlayerManager {
     }
 
     private _removeListenersListener: (() => void) | null = null;
-    private _removeVolumeListener: (() => void) | null = null;
     private _registerCommands() {
         // Set up media control event listener
         console.log('📱 JS: Setting up media control event listener');
@@ -618,21 +611,11 @@ export class PlayerManager {
             }
         });
 
-        // Set up volume change listener
-        this._removeVolumeListener = MediaControl.addVolumeChangeListener((change: VolumeChange) => {
-            console.log('🔊 Volume Change:', change);
-            // setVolume(change.volume);
-            // setLastEvent(`Volume: ${(change.volume * 100).toFixed(0)}% at ${new Date().toLocaleTimeString()}`);
-        });
-
     }
     private _unregisterCommands() {
         console.log('📱 JS: Removing media control event listener');
         this._removeListenersListener?.();
         this._removeListenersListener = null;
-
-        this._removeVolumeListener?.();
-        this._removeVolumeListener = null;
     }
 
 }

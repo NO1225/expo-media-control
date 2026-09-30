@@ -149,7 +149,7 @@ public class ExpoMediaControlModule: Module {
     // =============================================
     
     /// Event fired when media control commands are received (play, pause, next, etc.)
-    Events("mediaControlEvent", "volumeChange")
+    Events("mediaControlEvent")
   }
 
   // =============================================
@@ -258,6 +258,11 @@ public class ExpoMediaControlModule: Module {
    */
   private func updateMetadata(metadata: [String: Any]) async throws {
     currentMetadata = metadata
+
+    // elapsedTime is a shortcut for passing the position to updatePlaybackState()
+    if let elapsedTime = metadata["elapsedTime"] as? Double {
+      currentPosition = elapsedTime
+    }
     
     // Convert metadata to MPNowPlayingInfoCenter format
     var nowPlayingInfo: [String: Any] = [:]

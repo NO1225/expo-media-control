@@ -84,16 +84,6 @@ describe("MediaControl", () => {
     expect(onEvent).not.toHaveBeenCalled();
   });
 
-  it("forwards volume change events", async () => {
-    const onVolume = jest.fn();
-    MediaControl.addVolumeChangeListener(onVolume);
-    await MediaControl.enableMediaControls();
-
-    emit("volumeChange", { volume: 0.5, userInitiated: true });
-
-    expect(onVolume).toHaveBeenCalledWith({ volume: 0.5, userInitiated: true });
-  });
-
   it("rejects more than 3 compact capabilities", async () => {
     await expect(
       MediaControl.enableMediaControls({
