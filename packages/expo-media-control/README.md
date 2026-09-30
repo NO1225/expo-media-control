@@ -785,16 +785,25 @@ Call `enableMediaControls()` again with the new options (for example, switching 
 - **Remote Command Center** - Handles all iOS remote control events
 - **AirPlay Support** - Works with AirPlay and Bluetooth devices
 
-> **CarPlay / Android Auto:** Now Playing information appears wherever the OS shows it for any audio app, but this module does not provide a CarPlay or Android Auto app (browsable library, templates). That needs platform entitlements and a content tree, and is planned as a separate package.
+> **CarPlay / Android Auto:** Now Playing information appears wherever the OS shows it for any audio app. To show your app in Android Auto and CarPlay with a browsable library, search and voice requests, add the companion package [`expo-media-control-car`](https://github.com/NO1225/expo-media-control/tree/main/packages/expo-media-control-car#readme). It reuses this module's media session, metadata and commands.
 
 ### Android Features
 
-- **Media3 Session** - Built on AndroidX Media3 (`MediaSessionService`), the current Android media API
+- **Media3 Session** - Built on AndroidX Media3 (`MediaLibraryService`), the current Android media API
 - **Notification Controls** - Rich media notifications with custom actions
 - **Lock Screen Controls** - Media controls on Android lock screen
 - **Bluetooth Integration** - Works with Bluetooth headphones and car systems
 
 > **Note:** Audio focus management should be handled by your media player (e.g., expo-audio, react-native-video), not by this control module. This module only provides the UI controls.
+
+#### Media library hook (Android, 2.1+)
+
+The Android service is a Media3 `MediaLibraryService`. Another native module can register a
+`expo.modules.mediacontrol.MediaLibraryProvider` to answer browse, search and "play this item"
+requests from Android Auto and other media browsers, either with an application meta-data entry
+named `expo.modules.mediacontrol.LIBRARY_PROVIDER` (the class name; the class needs a constructor
+taking a `Context`) or by setting `MediaControlCenter.libraryProvider`. `expo-media-control-car`
+uses this hook. Without a provider, the service behaves as in 2.0.
 
 ## 🔧 Configuration Options
 
