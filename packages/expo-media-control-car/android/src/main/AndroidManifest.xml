@@ -1,0 +1,22 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+  xmlns:tools="http://schemas.android.com/tools">
+  <application>
+    <!-- Declares the app as an Android Auto media app -->
+    <meta-data
+      android:name="com.google.android.gms.car.application"
+      android:resource="@xml/automotive_app_desc" />
+
+    <!-- Lets expo-media-control's service create the library provider without JavaScript running -->
+    <meta-data
+      android:name="expo.modules.mediacontrol.LIBRARY_PROVIDER"
+      android:value="expo.modules.mediacontrolcar.CarLibraryProvider" />
+
+    <!-- Serves browse artwork to Android Auto, which only loads content:// URIs. Exported so the
+         car can read it; it only serves artwork of items in the current library. -->
+    <provider
+      android:name="expo.modules.mediacontrolcar.CarArtworkProvider"
+      android:authorities="${applicationId}.expomediacontrolcar.artwork"
+      android:exported="true"
+      tools:ignore="ExportedContentProvider" />
+  </application>
+</manifest>

@@ -1,0 +1,55 @@
+apply plugin: 'com.android.library'
+
+group = 'expo.modules.mediacontrol'
+version = '2.1.0'
+
+// Simple helper that allows the root project to override versions declared by this library.
+def safeExtGet(prop, fallback) {
+  rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback
+}
+
+def expoModulesCorePlugin = new File(project(":expo-modules-core").projectDir.absolutePath, "ExpoModulesCorePlugin.gradle")
+apply from: expoModulesCorePlugin
+applyKotlinExpoModulesCorePlugin()
+useCoreDependencies()
+useExpoPublishing()
+
+// If you want to use the managed Android SDK versions from expo-modules-core, set this to true.
+// The Android SDK versions will be bumped from time to time in SDK releases and may introduce breaking changes in your module code.
+// Most of the time, you may like to manage the Android SDK versions yourself.
+def useManagedAndroidSdkVersions = false
+if (useManagedAndroidSdkVersions) {
+  useDefaultAndroidSdkVersions()
+} else {
+  project.android {
+    compileSdkVersion safeExtGet("compileSdkVersion", 36)
+    defaultConfig {
+      minSdkVersion safeExtGet("minSdkVersion", 24)
+      targetSdkVersion safeExtGet("targetSdkVersion", 36)
+    }
+  }
+}
+
+android {
+  namespace "expo.modules.mediacontrol"
+  defaultConfig {
+    versionCode 1
+    versionName "2.1.0"
+  }
+  lintOptions {
+    abortOnError false
+  }
+}
+
+dependencies {
+  // Media3 session (MediaSession, notification and foreground service handling).
+  // Defaults to the version used by expo-audio so both modules share one Media3 version;
+  // override with `expoMediaControlMedia3Version` in the root project's ext block.
+  // `api` because MediaLibraryProvider exposes Media3 and Guava types to other modules
+  // (such as expo-media-control-car).
+  def media3Version = safeExtGet("expoMediaControlMedia3Version", "1.9.0")
+  api "androidx.media3:media3-session:${media3Version}"
+  api "androidx.media3:media3-common:${media3Version}"
+  implementation "androidx.core:core:1.13.1"
+  api "com.google.guava:guava:33.3.1-android"
+}

@@ -27,24 +27,33 @@ jobs:
       - name: Lint code
         run: npm run lint
 
+      - name: Build packages
+        run: |
+          npm run build
+          npm run build:plugins
+
+      - name: Type-check packages and example app
+        run: npm run typecheck
+
       - name: Run tests
         run: npm run test -- --passWithNoTests
-
-      - name: Build project
-        run: npm run build
 
       # What npm would publish: a tarball without the compiled plugin or module breaks every app that installs it
       - name: Check the package contents
         run: |
-          npm run prepublishOnly
-          npm pack --dry-run --json > pack.json
-          node -e "
-            const files = require('./pack.json')[0].files.map((f) => f.path);
-            const needed = ['build/index.js', 'build/index.d.ts', 'plugin/build/index.js', 'app.plugin.js', 'expo-module.config.json', 'android/build.gradle', 'ios/ExpoMediaControl.podspec'];
-            const missing = needed.filter((f) => !files.includes(f));
-            if (missing.length) { console.error('Missing from the tarball: ' + missing.join(', ')); process.exit(1); }
-            console.log(files.length + ' files, all required ones present');
-          "
+          for package in expo-media-control expo-media-control-car; do
+            npm run prepublishOnly --workspace "packages/$package"
+            npm pack --dry-run --json --workspace "packages/$package" > "pack-$package.json"
+            PACKAGE="$package" node -e "
+              const name = process.env.PACKAGE;
+              const pod = name === 'expo-media-control' ? 'ExpoMediaControl' : 'ExpoMediaControlCar';
+              const files = require('./pack-' + name + '.json')[0].files.map((f) => f.path);
+              const needed = ['build/index.js', 'build/index.d.ts', 'plugin/build/index.js', 'app.plugin.js', 'expo-module.config.json', 'android/build.gradle', 'ios/' + pod + '.podspec'];
+              const missing = needed.filter((f) => !files.includes(f));
+              if (missing.length) { console.error(name + ': missing from the tarball: ' + missing.join(', ')); process.exit(1); }
+              console.log(name + ': ' + files.length + ' files, all required ones present');
+            "
+          done
 
   publish-npm:
     needs: test
@@ -63,17 +72,38 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Extract version from release tag
-        id: get_version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+      # Release tags pick the package to publish:
+      #   expo-media-control-car@1.0.0 -> packages/expo-media-control-car
+      #   expo-media-control@2.1.0, v2.1.0 or 2.1.0 -> packages/expo-media-control
+      - name: Resolve package and version from release tag
+        id: target
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          case "$TAG" in
+            expo-media-control-car@*) PACKAGE=expo-media-control-car; VERSION="${TAG#expo-media-control-car@}" ;;
+            expo-media-control@*) PACKAGE=expo-media-control; VERSION="${TAG#expo-media-control@}" ;;
+            v[0-9]*) PACKAGE=expo-media-control; VERSION="${TAG#v}" ;;
+            [0-9]*) PACKAGE=expo-media-control; VERSION="$TAG" ;;
+            *) echo "Unrecognized release tag: $TAG"; exit 1 ;;
+          esac
+          echo "package=$PACKAGE" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Publishing $PACKAGE@$VERSION"
 
-      - name: Update package.json version
-        run: npm version ${{ steps.get_version.outputs.VERSION }} --no-git-tag-version --allow-same-version
+      - name: Set package version
+        run: npm version "${{ steps.target.outputs.version }}" --no-git-tag-version --allow-same-version --workspace "packages/${{ steps.target.outputs.package }}"
 
-      - name: Build project
-        run: npm run build
+      - name: Check package contents
+        run: |
+          npm run build --workspace "packages/${{ steps.target.outputs.package }}"
+          npm run build:plugin --workspace "packages/${{ steps.target.outputs.package }}"
+          npm pack --dry-run --workspace "packages/${{ steps.target.outputs.package }}" 2>&1 | tee pack.log
+          # Make sure both the module and the config plugin builds are packed
+          grep -q "build/index.js" pack.log
+          grep -q "plugin/build/index.js" pack.log
 
-      - name: Publish to NPM
-        run: npm publish
+      - name: Publish to npm
+        run: npm publish --workspace "packages/${{ steps.target.outputs.package }}" ${{ github.event.release.prerelease && '--tag next' || '' }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

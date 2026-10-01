@@ -1,63 +1,22 @@
 {
-  "name": "expo-media-control",
-  "version": "2.0.0",
-  "description": "Comprehensive media control module for Expo and React Native with background audio support, lock screen controls, and system integration",
-  "main": "build/index.js",
-  "types": "build/index.d.ts",
-  "scripts": {
-    "build": "expo-module build",
-    "clean": "expo-module clean",
-    "lint": "expo-module lint",
-    "test": "expo-module test",
-    "prepare": "expo-module prepare",
-    "prepublishOnly": "expo-module prepublishOnly && expo-module build plugin",
-    "expo-module": "expo-module",
-    "open:ios": "xed example/ios",
-    "open:android": "open -a \"Android Studio\" example/android"
-  },
-  "keywords": [
-    "react-native",
-    "expo",
-    "expo-media-control",
-    "media-control",
-    "audio-control",
-    "music-control",
-    "background-audio",
-    "lock-screen",
-    "notification",
-    "control-center",
-    "media-session",
-    "remote-control",
-    "ios",
-    "android"
+  "name": "expo-media-control-monorepo",
+  "private": true,
+  "description": "Monorepo for expo-media-control and expo-media-control-car",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
   ],
-  "repository": "https://github.com/NO1225/expo-media-control",
-  "bugs": {
-    "url": "https://github.com/NO1225/expo-media-control/issues"
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "build:plugins": "npm run build:plugin --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
   },
-  "author": "Juma <safartyjumah@gmail.com> (https://github.com/NO1225)",
-  "license": "MIT",
-  "homepage": "https://github.com/NO1225/expo-media-control#readme",
+  "engines": {
+    "node": ">=20"
+  },
   "devDependencies": {
-    "@types/react": "~19.2.10",
-    "eslint": "^9.39.0",
-    "expo": "~57.0.26",
-    "expo-module-scripts": "^56.0.3",
-    "react-native": "0.86.3"
-  },
-  "peerDependencies": {
-    "expo": "*",
-    "react": "*",
-    "react-native": "*"
-  },
-  "expo": {
-    "platforms": [
-      "ios",
-      "android"
-    ],
-    "entryPoint": "./index"
-  },
-  "jest": {
-    "preset": "expo-module-scripts"
+    "babel-preset-expo": "~57.0.13"
   }
 }
