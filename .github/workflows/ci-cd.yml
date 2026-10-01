@@ -55,6 +55,46 @@ jobs:
             "
           done
 
+  # The Kotlin and Swift are only compiled by an app build, so build the example app with both packages
+  android:
+    runs-on: ubuntu-latest
+    if: github.event_name != 'release'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+      - run: npm ci
+      - run: npm run build:plugins
+      - name: Compile the example app
+        working-directory: apps/example
+        run: |
+          npx expo prebuild --platform android --no-install
+          cd android && ./gradlew assembleDebug -PreactNativeArchitectures=x86_64
+
+  ios:
+    runs-on: macos-latest
+    if: github.event_name != 'release'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run build:plugins
+      - name: Compile the example app for the Simulator
+        working-directory: apps/example
+        run: |
+          npx expo prebuild --platform ios
+          cd ios && xcodebuild -workspace *.xcworkspace -scheme expomediacontrolexample -configuration Debug \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO -quiet build
+
   publish-npm:
     needs: test
     runs-on: ubuntu-latest

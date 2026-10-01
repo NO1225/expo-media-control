@@ -145,7 +145,7 @@ The package declares your app as an Android Auto media app (`automotive_app_desc
 2. **Publish.** Opt in to Android Auto in the Play Console (Advanced settings → Form factors). Google reviews the app against the [car app quality guidelines](https://developer.android.com/docs/quality-guidelines/car-app-quality) (for example: playback must start from the car without touching the phone, and artwork must load).
 
 Notes:
-- **JavaScript not running.** When the app process was killed, Android Auto can still start the service and browse the saved library. Play requests are queued and delivered when JavaScript registers a listener, which needs the app to run. Keep the app alive while connected, or make sure your app starts playback when it's opened.
+- **JavaScript not running.** When the app process was killed, Android Auto can still start the service and browse the saved library. The package then starts React Native without an activity, and queues play requests until JavaScript registers a listener. Only code that runs at startup runs then, not your components, so call `setChildrenLoader()` and `addPlayRequestListener()` at module level (for example from your entry file), not in a component effect.
 - **Artwork.** Android Auto only loads `content://` artwork, so the package serves `http(s)://` and `file://` artwork of library items through its own content provider (cached for 7 days).
 - **Strings.** Override `expo_media_control_car_empty_library` and `expo_media_control_car_root_title` in your app's `strings.xml` to translate them.
 

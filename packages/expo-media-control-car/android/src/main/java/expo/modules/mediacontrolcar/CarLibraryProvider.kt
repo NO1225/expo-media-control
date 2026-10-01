@@ -3,6 +3,7 @@ package expo.modules.mediacontrolcar
 import android.content.Context
 import android.net.Uri
 import android.os.Bundle
+import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -13,6 +14,7 @@ import androidx.media3.session.MediaLibraryService.LibraryParams
 import androidx.media3.session.MediaLibraryService.MediaLibrarySession
 import androidx.media3.session.MediaSession
 import androidx.media3.session.SessionError
+import com.facebook.react.ReactApplication
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
@@ -51,6 +53,7 @@ class CarLibraryProvider(context: Context) : MediaLibraryProvider {
       // Playback resumption from the system UI isn't supported: the app starts playback itself
       return Futures.immediateFuture(LibraryResult.ofError(SessionError.ERROR_NOT_SUPPORTED))
     }
+    startJavaScript()
     val extras = Bundle()
     styleValue(CarLibraryStore.library?.style)?.let {
       extras.putInt(MediaConstants.EXTRAS_KEY_CONTENT_STYLE_BROWSABLE, it)
@@ -196,6 +199,20 @@ class CarLibraryProvider(context: Context) : MediaLibraryProvider {
       bridge.deliverPlayRequest(payload)
     } else {
       CarLibraryStore.pendingPlayRequest = payload
+      startJavaScript()
+    }
+  }
+
+  /**
+   * Starts React Native without an activity when the car connects to a closed app, so JavaScript
+   * can load folders and receive play requests. A no-op once JavaScript is attached.
+   */
+  private fun startJavaScript() {
+    if (CarLibraryStore.bridge != null) return
+    try {
+      (appContext as? ReactApplication)?.reactHost?.start()
+    } catch (e: Exception) {
+      Log.w(TAG, "Couldn't start React Native for the car", e)
     }
   }
 
@@ -302,5 +319,6 @@ class CarLibraryProvider(context: Context) : MediaLibraryProvider {
   companion object {
     const val ROOT_ID = "__expo_media_control_car_root__"
     const val EMPTY_ID = "__expo_media_control_car_empty__"
+    private const val TAG = "ExpoMediaControlCar"
   }
 }

@@ -35,4 +35,6 @@ android {
 dependencies {
   // The core package owns the media session; its MediaLibraryProvider API brings Media3 and Guava
   implementation project(':expo-media-control')
+  // ReactApplication, to start JavaScript when the car connects to a closed app
+  implementation 'com.facebook.react:react-android'
 }

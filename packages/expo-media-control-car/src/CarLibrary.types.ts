@@ -79,8 +79,8 @@ export interface NativeCarMediaItem {
   artworkUri?: string;
   playable: boolean;
   browsable: boolean;
-  /** null: load on demand with the children loader */
-  children: NativeCarMediaItem[] | null;
+  /** Missing: load on demand with the children loader */
+  children?: NativeCarMediaItem[];
   style?: CarListStyle;
   duration?: number;
   explicit?: boolean;
