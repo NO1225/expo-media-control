@@ -106,7 +106,6 @@ describe("setLibrary", () => {
               artworkUri: "https://example.com/42.jpg",
               browsable: false,
               playable: true,
-              children: null,
               duration: 120,
             },
           ],
@@ -116,7 +115,6 @@ describe("setLibrary", () => {
           title: "Shows",
           browsable: true,
           playable: false,
-          children: null,
           style: "list",
         },
         {
@@ -124,7 +122,6 @@ describe("setLibrary", () => {
           title: "Radio",
           browsable: false,
           playable: true,
-          children: null,
           artworkUri: "https://example.com/radio.png",
           explicit: true,
         },
@@ -216,7 +213,6 @@ describe("children loader", () => {
         title: "One",
         browsable: false,
         playable: true,
-        children: null,
       },
     ]);
   });
@@ -255,7 +251,6 @@ describe("search handler", () => {
         title: "Match",
         browsable: false,
         playable: true,
-        children: null,
       },
     ]);
   });

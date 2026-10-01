@@ -11,6 +11,8 @@ import java.io.FileNotFoundException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.Executors
 
 /**
  * Serves browse artwork to Android Auto, which only loads `content://` URIs.
@@ -37,7 +39,12 @@ class CarArtworkProvider : ContentProvider() {
     val parsed = Uri.parse(original)
     val file = when (parsed.scheme) {
       "file" -> File(parsed.path ?: throw FileNotFoundException("Invalid file URI"))
-      "http", "https" -> download(original, File(context.cacheDir, CACHE_DIR))
+      // On a thread of our own: a binder call carries the caller's StrictMode policy, which can forbid network
+      "http", "https" -> try {
+        downloads.submit<File> { download(original, File(context.cacheDir, CACHE_DIR)) }.get()
+      } catch (e: ExecutionException) {
+        throw e.cause as? FileNotFoundException ?: FileNotFoundException("Couldn't load artwork")
+      }
       else -> throw FileNotFoundException("Unsupported artwork URI")
     }
     return ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
@@ -120,6 +127,7 @@ class CarArtworkProvider : ContentProvider() {
     private const val CACHE_MAX_AGE_MS = 7L * 24 * 60 * 60 * 1000
     private const val TIMEOUT_MS = 10_000
     private const val MAX_BYTES = 10L * 1024 * 1024
+    private val downloads = Executors.newCachedThreadPool()
 
     fun buildUri(authority: String, original: String): Uri = Uri.Builder()
       .scheme("content")

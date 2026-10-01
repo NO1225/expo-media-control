@@ -317,8 +317,8 @@ class MediaPlaybackService : MediaLibraryService() {
       )
     }
 
-    private fun <T> notSupported(): ListenableFuture<LibraryResult<T>> =
-      Futures.immediateFuture(LibraryResult.ofError(SessionError.ERROR_NOT_SUPPORTED))
+    private fun <T : Any> notSupported(): ListenableFuture<LibraryResult<T>> =
+      Futures.immediateFuture(LibraryResult.ofError<T>(SessionError.ERROR_NOT_SUPPORTED))
 
     override fun onSetRating(
       session: MediaSession,

@@ -19,3 +19,4 @@ First release. Requires `expo-media-control` 2.1 or later.
 - **CarPlay**: CarPlay and phone scene delegates, tab and list templates, the system Now Playing template
 - **Siri**: in-app `INPlayMediaIntent` handling (opt-in)
 - Config plugin: CarPlay scenes, `carPlayEntitlement`, `siri`, `siriMediaCategories`, `androidAuto`
+- **Android Auto with the app closed**: when a car connects or asks to play, React Native is started without an activity, so JavaScript code that runs at startup (outside components) can load folders and receive the play request

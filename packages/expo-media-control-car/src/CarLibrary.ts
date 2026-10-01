@@ -117,12 +117,13 @@ function toNativeItem(
     title: item.title,
     playable,
     browsable,
-    children: browsable
-      ? (item.children?.map((child, index) =>
-          toNativeItem(child, `${path}.children[${index}]`, seenIds),
-        ) ?? null)
-      : null,
   };
+  // Left out rather than null: Expo's Map<String, Any?> conversion rejects null values
+  if (browsable && item.children) {
+    nativeItem.children = item.children.map((child, index) =>
+      toNativeItem(child, `${path}.children[${index}]`, seenIds),
+    );
+  }
   if (item.subtitle) nativeItem.subtitle = item.subtitle;
   if (artworkUri) nativeItem.artworkUri = artworkUri;
   if (item.style) nativeItem.style = item.style;
