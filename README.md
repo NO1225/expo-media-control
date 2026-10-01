@@ -5,7 +5,7 @@ System media controls for Expo and React Native apps: lock screen, Control Cente
 | Package | npm | What it does |
 | --- | --- | --- |
 | [`expo-media-control`](./packages/expo-media-control) | [![npm](https://img.shields.io/npm/v/expo-media-control.svg)](https://www.npmjs.com/package/expo-media-control) | Now Playing metadata, playback state and remote commands on iOS and Android |
-| [`expo-media-control-car`](./packages/expo-media-control-car) | [![npm](https://img.shields.io/npm/v/expo-media-control-car.svg)](https://www.npmjs.com/package/expo-media-control-car) | Optional: a browsable library, search and voice requests in Android Auto and CarPlay |
+| [`expo-media-control-car`](./packages/expo-media-control-car) | soon | Optional: a browsable library, search and voice requests in Android Auto and CarPlay |
 
 Start with the [expo-media-control README](./packages/expo-media-control/README.md). Add the car package only if your app should appear in car head units.
 
