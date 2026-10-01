@@ -1,5 +1,8 @@
 # 🚗 expo-media-control-car
 
+[![npm version](https://img.shields.io/npm/v/expo-media-control-car.svg)](https://www.npmjs.com/package/expo-media-control-car)
+[![MIT license](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/NO1225/expo-media-control/blob/main/LICENSE)
+
 Android Auto and Apple CarPlay support for [`expo-media-control`](https://github.com/NO1225/expo-media-control/tree/main/packages/expo-media-control#readme): show your app in the car with a browsable library, answer in-car searches and voice requests ("Hey Google / Siri, play X"), and get a play request in JavaScript when the driver picks something.
 
 The core package keeps doing the media session: Now Playing metadata, playback state and remote commands. This package adds the library and the car UI on top of it, and never creates a second session. You keep playing audio with your own player (expo-audio, react-native-video, ...).
